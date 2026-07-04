@@ -1,0 +1,227 @@
+@page "/endpoints/{Id:guid}"
+@attribute [Authorize(Policy = "Admin")]
+@inject IEndpointService EndpointSvc
+@inject IRequestService RequestService
+@inject NavigationManager Nav
+@using Raizen.Shared.DTOs
+@using Raizen.Shared.Enums
+
+<PageTitle>Endpoint History | Raizen</PageTitle>
+
+@if (_loading && _endpoint is null)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_endpoint is null)
+{
+    <div class="alert alert-danger">Endpoint not found.</div>
+}
+else
+{
+    <div class="mb-3">
+        <a class="rz-btn rz-btn-ghost rz-btn-sm" href="endpoints">
+            <i class="bi bi-arrow-left"></i> Back to Endpoints
+        </a>
+    </div>
+
+    @* ── Endpoint header card ─────────────────────────────────────────── *@
+    <div class="rz-card mb-4">
+        <div class="rz-card-body" style="padding:20px 24px;">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div style="width:48px;height:48px;border-radius:12px;background:#eef2ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    <i class="bi bi-pc-display" style="font-size:1.4rem;color:#4f8ef7;"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <h1 class="rz-page-title mb-1">@_endpoint.MachineName</h1>
+                    <div class="d-flex align-items-center gap-2 flex-wrap" style="font-size:.82rem;color:#6b7280;">
+                        @if (_endpoint.OsVersion is not null)
+                        {
+                            <span><i class="bi bi-windows me-1"></i>@_endpoint.OsVersion</span>
+                            <span style="color:#d1d5db;">|</span>
+                        }
+                        <span><i class="bi bi-calendar3 me-1"></i>Registered @_endpoint.RegisteredAt.ToLocalTime().ToString("yyyy-MM-dd")</span>
+                        <span style="color:#d1d5db;">|</span>
+                        <span title="@_endpoint.MachineId"><i class="bi bi-fingerprint me-1"></i><code style="font-size:.78rem">@_endpoint.MachineId</code></span>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                    @if (_endpoint.AgentVersion is not null)
+                    {
+                        <span class="badge bg-secondary" style="font-family:monospace;font-size:.75rem;">v@_endpoint.AgentVersion</span>
+                    }
+                    @if (IsOnline(_endpoint))
+                    {
+                        <span class="rz-endpoint-status online"><i class="bi bi-circle-fill"></i> Online</span>
+                    }
+                    else if (_endpoint.LastSeenAt is null)
+                    {
+                        <span class="rz-endpoint-status never"><i class="bi bi-circle"></i> Never seen</span>
+                    }
+                    else
+                    {
+                        <span class="rz-endpoint-status offline"><i class="bi bi-circle-fill"></i> Offline</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Filter bar ───────────────────────────────────────────────────── *@
+    <div class="rz-filter-bar">
+        <div>
+            <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Status</label>
+            <select class="form-select form-select-sm" style="min-width:140px" @bind="_statusFilter">
+                <option value="">All Statuses</option>
+                @foreach (var s in Enum.GetValues<RequestStatus>())
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">From</label>
+            <input class="form-control form-control-sm" type="date" style="min-width:140px" @bind="_fromFilter" />
+        </div>
+        <div>
+            <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">To</label>
+            <input class="form-control form-control-sm" type="date" style="min-width:140px" @bind="_toFilter" />
+        </div>
+        <div class="ms-auto align-self-end">
+            <button class="rz-btn rz-btn-primary" @onclick="Load">
+                <i class="bi bi-search"></i> Search
+            </button>
+        </div>
+    </div>
+
+    @* ── Results ──────────────────────────────────────────────────────── *@
+    @if (_loading)
+    {
+        <div class="d-flex align-items-center gap-2 text-muted">
+            <span class="spinner-border spinner-border-sm"></span> Loading...
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <strong>Failed to load requests.</strong> @_error
+        </div>
+    }
+    else if (_result is null || _result.Items.Count == 0)
+    {
+        <div class="rz-card">
+            <div class="rz-empty">
+                <i class="bi bi-inbox"></i>
+                No requests found for this endpoint.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="text-muted" style="font-size:.85rem;">
+                @_result.TotalCount request@(_result.TotalCount == 1 ? "" : "s") total
+            </span>
+        </div>
+
+        <div class="rz-card">
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Requester</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _result.Items)
+                    {
+                        <tr>
+                            <td><strong>@r.ActionDisplayName</strong></td>
+                            <td>@r.RequesterUpn</td>
+                            <td><StatusBadge Status="r.Status" /></td>
+                            <td>@r.SubmittedAt.ToLocalTime().ToString("g")</td>
+                            <td>
+                                <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests/@r.Id">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="PrevPage" disabled="@(_page == 1)">
+                <i class="bi bi-chevron-left"></i> Previous
+            </button>
+            <span class="text-muted" style="font-size:.85rem">Page @_page of @_result.TotalPages</span>
+            <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="NextPage" disabled="@(_page >= _result.TotalPages)">
+                Next <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private EndpointRegistrationDto? _endpoint;
+    private PagedResult<ElevationRequestDto>? _result;
+    private bool _loading = true;
+    private string? _error;
+    private string _statusFilter = "";
+    private DateOnly? _fromFilter;
+    private DateOnly? _toFilter;
+    private int _page = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _endpoint = await EndpointSvc.GetByIdAsync(Id);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (_endpoint is null) return;
+        _loading = true;
+        _error = null;
+        try
+        {
+            RequestStatus? status = Enum.TryParse<RequestStatus>(_statusFilter, out var s) ? s : null;
+            DateTimeOffset? from = _fromFilter.HasValue
+                ? new DateTimeOffset(_fromFilter.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+                : null;
+            DateTimeOffset? to = _toFilter.HasValue
+                ? new DateTimeOffset(_toFilter.Value.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero)
+                : null;
+            _result = await RequestService.ListAsync(
+                status,
+                requesterUpn: null,
+                machineId: _endpoint.MachineId,
+                _page, 30,
+                from: from, to: to);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PrevPage() { if (_page > 1) { _page--; await Load(); } }
+    private async Task NextPage() { _page++; await Load(); }
+
+    private static bool IsOnline(EndpointRegistrationDto ep) =>
+        ep.IsEnabled &&
+        ep.LastSeenAt.HasValue &&
+        (DateTimeOffset.UtcNow - ep.LastSeenAt.Value).TotalMinutes < 10;
+}

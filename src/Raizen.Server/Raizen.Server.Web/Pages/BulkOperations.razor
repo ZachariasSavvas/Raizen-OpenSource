@@ -1,0 +1,271 @@
+@page "/bulk-operations"
+@attribute [Authorize(Policy = "Admin")]
+@inject IBulkOperationService BulkSvc
+@inject IActionCatalogService CatalogSvc
+@inject IEndpointService EndpointSvc
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Bulk Operations | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Bulk Operations</h1>
+<p class="rz-page-subtitle">Submit actions across multiple endpoints and track progress.</p>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill"></i> @_error
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_success))
+{
+    <div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-check-circle-fill"></i> @_success
+    </div>
+}
+
+<!-- ── Submit New Bulk Operation ─────────────────────────────────── -->
+<div class="rz-card mb-4">
+    <div class="rz-card-header">
+        <i class="bi bi-plus-circle text-primary"></i> New Bulk Operation
+    </div>
+    <div class="rz-card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label fw-semibold">Action</label>
+                <select class="form-select" @bind="_selectedActionId">
+                    <option value="">Select an action...</option>
+                    @foreach (var a in _actions)
+                    {
+                        <option value="@a.Id">@a.DisplayName (@a.ActionType)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label fw-semibold">Target Endpoints</label>
+                <div class="d-flex gap-2">
+                    <select class="form-select" multiple size="4" @onchange="OnEndpointsChanged" style="min-height:100px;">
+                        @foreach (var ep in _endpoints)
+                        {
+                            <option value="@ep.Id" selected="@_selectedEndpointIds.Contains(ep.Id)">@ep.MachineName (@ep.MachineId[..8]...)</option>
+                        }
+                    </select>
+                </div>
+                <small class="text-muted">Hold Ctrl to select multiple. @_selectedEndpointIds.Count selected.</small>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-semibold">Justification</label>
+                <textarea class="form-control" rows="2" maxlength="2000" @bind="_justification" placeholder="Reason for this bulk operation..."></textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label fw-semibold">Ticket Reference <span class="text-muted fw-normal">(optional)</span></label>
+                <input class="form-control" @bind="_ticketRef" placeholder="e.g. JIRA-1234" />
+            </div>
+            <div class="col-12">
+                <button class="btn btn-primary" @onclick="SubmitBulk" disabled="@_submitting">
+                    @if (_submitting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Submit Bulk Operation
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Bulk Operations List ──────────────────────────────────────── -->
+<div class="rz-card">
+    <div class="rz-card-header">
+        <i class="bi bi-layers text-primary"></i> Recent Bulk Operations
+    </div>
+    <div class="rz-card-body p-0">
+        @if (_bulkOps.Count == 0)
+        {
+            <div class="text-center py-5">
+                <i class="bi bi-inbox" style="font-size:2rem;color:#d1d5db;"></i>
+                <div class="mt-2 text-muted">No bulk operations yet.</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle" style="font-size:.88rem;">
+                    <thead>
+                        <tr style="background:#f9fafb;">
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;">Action</th>
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;">Created By</th>
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;">Total</th>
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;">Progress</th>
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;">Created</th>
+                            <th style="padding:10px 16px;font-weight:600;color:#6b7280;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _bulkOps)
+                        {
+                            var pct = b.TotalCount > 0 ? (int)((b.SucceededCount + b.FailedCount) * 100.0 / b.TotalCount) : 0;
+                            var barColor = b.FailedCount > 0 ? "#dc2626" : b.CompletedAt.HasValue ? "#16a34a" : "#3b82f6";
+                            <tr>
+                                <td style="padding:10px 16px;font-weight:600;">@b.ActionDisplayName</td>
+                                <td style="padding:10px 16px;">@b.CreatedByUpn</td>
+                                <td style="padding:10px 16px;">@b.TotalCount endpoints</td>
+                                <td style="padding:10px 16px;min-width:200px;">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="progress flex-grow-1" style="height:8px;">
+                                            <div class="progress-bar" role="progressbar" style="width:@(pct)%;background:@barColor;"></div>
+                                        </div>
+                                        <span style="font-size:.78rem;color:#6b7280;white-space:nowrap;">
+                                            @b.SucceededCount<i class="bi bi-check-circle-fill text-success ms-1 me-2" style="font-size:.7rem;"></i>@b.FailedCount<i class="bi bi-x-circle-fill text-danger ms-1" style="font-size:.7rem;"></i>
+                                        </span>
+                                    </div>
+                                </td>
+                                <td style="padding:10px 16px;color:#6b7280;">@b.CreatedAt.ToLocalTime().ToString("g")</td>
+                                <td style="padding:10px 16px;">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetail(b.Id)">Detail</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- ── Detail Modal ──────────────────────────────────────────────── -->
+@if (_detailOp is not null)
+{
+    <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.4);" @onclick="() => _detailOp = null">
+        <div class="modal-dialog modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Bulk Operation: @_detailOp.ActionDisplayName</h5>
+                    <button type="button" class="btn-close" @onclick="() => _detailOp = null"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="row mb-3" style="font-size:.88rem;">
+                        <dt class="col-sm-3 text-muted">Created By</dt>
+                        <dd class="col-sm-9">@_detailOp.CreatedByUpn</dd>
+                        <dt class="col-sm-3 text-muted">Justification</dt>
+                        <dd class="col-sm-9">@_detailOp.Justification</dd>
+                        <dt class="col-sm-3 text-muted">Progress</dt>
+                        <dd class="col-sm-9">@_detailOp.SucceededCount succeeded, @_detailOp.FailedCount failed, @_detailOp.PendingCount pending of @_detailOp.TotalCount</dd>
+                    </dl>
+                    <table class="table table-sm" style="font-size:.85rem;">
+                        <thead>
+                            <tr><th>Machine</th><th>Status</th><th>Result</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var child in _detailOp.Requests)
+                            {
+                                <tr>
+                                    <td>@child.TargetMachine</td>
+                                    <td><StatusBadge Status="child.Status" /></td>
+                                    <td style="color:#6b7280;">@(child.ExecutionResult ?? child.ExecutionError ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Raizen.Shared.DTOs.ActionDefinitionDto> _actions = [];
+    private List<Raizen.Shared.DTOs.EndpointRegistrationDto> _endpoints = [];
+    private List<Raizen.Shared.DTOs.BulkOperationDto> _bulkOps = [];
+    private Raizen.Shared.DTOs.BulkOperationDto? _detailOp;
+
+    private string _selectedActionId = "";
+    private HashSet<Guid> _selectedEndpointIds = [];
+    private string _justification = "";
+    private string _ticketRef = "";
+    private string _error = "";
+    private string _success = "";
+    private bool _submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _actions = await CatalogSvc.ListAsync(includeDisabled: false);
+            _endpoints = (await EndpointSvc.ListAsync()).Where(e => e.IsEnabled).ToList();
+            var result = await BulkSvc.ListAsync(1, 50);
+            _bulkOps = result.Items;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OnEndpointsChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string[] values)
+        {
+            _selectedEndpointIds = values
+                .Where(v => Guid.TryParse(v, out _))
+                .Select(Guid.Parse)
+                .ToHashSet();
+        }
+    }
+
+    private async Task SubmitBulk()
+    {
+        _error = "";
+        _success = "";
+
+        if (string.IsNullOrWhiteSpace(_selectedActionId) || !Guid.TryParse(_selectedActionId, out var actionId))
+        {
+            _error = "Please select an action.";
+            return;
+        }
+        if (_selectedEndpointIds.Count == 0)
+        {
+            _error = "Please select at least one endpoint.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_justification))
+        {
+            _error = "Justification is required.";
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var upn = auth.User.Identity?.Name ?? "admin";
+
+            var dto = new Raizen.Shared.DTOs.SubmitBulkOperationDto
+            {
+                ActionDefinitionId = actionId,
+                Justification = _justification,
+                TicketReference = string.IsNullOrWhiteSpace(_ticketRef) ? null : _ticketRef,
+                EndpointIds = _selectedEndpointIds.ToList(),
+            };
+
+            var result = await BulkSvc.SubmitAsync(dto, upn);
+            _success = $"Bulk operation created: {result.TotalCount} requests submitted (ID: {result.Id.ToString()[..8]}...).";
+            _justification = "";
+            _ticketRef = "";
+            _selectedEndpointIds.Clear();
+            _selectedActionId = "";
+            await LoadDataAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _submitting = false; }
+    }
+
+    private async Task ViewDetail(Guid id)
+    {
+        try
+        {
+            _detailOp = await BulkSvc.GetByIdAsync(id);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+}

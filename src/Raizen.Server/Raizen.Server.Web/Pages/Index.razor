@@ -1,0 +1,332 @@
+@page "/"
+@attribute [Authorize]
+@implements IAsyncDisposable
+@inject IDashboardService DashboardService
+@inject IJSRuntime JS
+
+<PageTitle>Dashboard | Raizen</PageTitle>
+
+<div class="rz-page-header">
+    <div>
+        <h1 class="rz-page-title">Dashboard</h1>
+        <p class="rz-page-subtitle">Elevation activity, execution health, and requests that need attention.</p>
+    </div>
+    @if (_stats is not null)
+    {
+        <div class="rz-page-actions">
+            <span class="rz-badge rz-badge-off">@_stats.TotalLast30Days requests in 30 days</span>
+            <a class="rz-btn rz-btn-ghost rz-btn-sm" href="pending">
+                <i class="bi bi-hourglass-split"></i> Review queue
+            </a>
+        </div>
+    }
+</div>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading dashboard
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Dashboard unavailable.</strong> @_error
+        <div class="mt-2 small text-muted">
+            If this is a fresh install, run the following as the PostgreSQL superuser to fix table permissions:<br />
+            <code>GRANT ALL ON ALL TABLES IN SCHEMA public TO raizen;</code><br />
+            <code>GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO raizen;</code>
+        </div>
+    </div>
+}
+else if (_stats is not null)
+{
+    <div class="row g-3 mb-3">
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon warning"><i class="bi bi-hourglass-split"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_stats.PendingCount</div>
+                    <div class="rz-stat-label">Pending approval</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon info"><i class="bi bi-check2-circle"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_stats.ApprovedCount</div>
+                    <div class="rz-stat-label">Awaiting execution</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon success"><i class="bi bi-check-circle"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_stats.SucceededToday</div>
+                    <div class="rz-stat-label">Succeeded today</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon danger"><i class="bi bi-exclamation-triangle"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_stats.FailedToday</div>
+                    <div class="rz-stat-label">Failed today</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rz-dashboard-grid">
+        <div>
+            <div class="rz-dashboard-charts mb-3">
+                <div class="rz-card rz-chart-card">
+                    <div class="rz-card-header">
+                        <i class="bi bi-pie-chart text-muted"></i> Status mix
+                    </div>
+                    <div class="rz-chart-body">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+                <div class="rz-card rz-chart-card">
+                    <div class="rz-card-header">
+                        <i class="bi bi-bar-chart text-muted"></i> Request volume
+                    </div>
+                    <div class="rz-chart-body">
+                        <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            @if (_stats.ByActionType.Count > 0)
+            {
+                <div class="rz-card mb-3">
+                    <div class="rz-card-header">
+                        <i class="bi bi-collection text-muted"></i> Top action types
+                    </div>
+                    <div class="rz-chart-body" style="height:@(Math.Max(180, _stats.ByActionType.Count * 42))px">
+                        <canvas id="actionTypeChart"></canvas>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="rz-card">
+            <div class="rz-card-header">
+                <i class="bi bi-hourglass-split text-warning"></i> Pending review
+            </div>
+            @if (_stats.PendingItems.Count == 0)
+            {
+                <div class="rz-empty">
+                    <i class="bi bi-inbox"></i>
+                    No requests pending approval.
+                </div>
+            }
+            else
+            {
+                <table class="rz-table">
+                    <thead>
+                        <tr>
+                            <th>Request</th>
+                            <th>Endpoint</th>
+                            <th>Expires</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _stats.PendingItems.Take(8))
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@r.ActionDisplayName</strong><br />
+                                    <span class="rz-inline-meta">@r.RequesterUpn</span>
+                                </td>
+                                <td><code>@r.TargetMachine</code></td>
+                                <td class="@(r.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(15) ? "rz-expiring" : "")">
+                                    @ExpiryLabel(r.ExpiresAt - DateTimeOffset.UtcNow)
+                                </td>
+                                <td>
+                                    <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests/@r.Id">
+                                        Review
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private DashboardStatsDto? _stats;
+    private string? _error;
+
+    private static readonly Dictionary<string, string> StatusColours = new()
+    {
+        ["Pending"]   = "#f59e0b",
+        ["Approved"]  = "#60a5fa",
+        ["Executing"] = "#a78bfa",
+        ["Succeeded"] = "#22c55e",
+        ["Failed"]    = "#ef4444",
+        ["Denied"]    = "#f97316",
+        ["Expired"]   = "#71717a",
+        ["Cancelled"] = "#52525b",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _stats = await DashboardService.GetStatsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && !_chartsRendered && _stats is not null)
+        {
+            _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        var chartDefaults = new
+        {
+            color = "#a1a1aa",
+            borderColor = "#2f2f2f",
+        };
+
+        if (_stats!.ByStatus.Count > 0)
+        {
+            var statusLabels = _stats.ByStatus.Keys.ToArray();
+            var statusData = _stats.ByStatus.Values.ToArray();
+            var statusColors = statusLabels.Select(l =>
+                StatusColours.TryGetValue(l, out var c) ? c : "#71717a").ToArray();
+
+            await JS.InvokeVoidAsync("raizenCharts.create", "statusChart", new
+            {
+                type = "doughnut",
+                data = new
+                {
+                    labels = statusLabels,
+                    datasets = new[] { new
+                    {
+                        data = statusData,
+                        backgroundColor = statusColors,
+                        borderColor = "#181818",
+                        borderWidth = 2,
+                    }}
+                },
+                options = new
+                {
+                    responsive = true,
+                    maintainAspectRatio = false,
+                    cutout = "62%",
+                    plugins = new
+                    {
+                        legend = new { position = "bottom", labels = new { color = chartDefaults.color, boxWidth = 10, boxHeight = 10 } },
+                    }
+                }
+            });
+        }
+
+        if (_stats.DailyVolume.Count > 0)
+        {
+            var sortedVolume = _stats.DailyVolume.OrderBy(kv => kv.Key).ToList();
+            await JS.InvokeVoidAsync("raizenCharts.create", "volumeChart", new
+            {
+                type = "bar",
+                data = new
+                {
+                    labels = sortedVolume.Select(kv => DateTime.Parse(kv.Key).ToString("MMM d")).ToArray(),
+                    datasets = new[] { new
+                    {
+                        label = "Requests",
+                        data = sortedVolume.Select(kv => kv.Value).ToArray(),
+                        backgroundColor = "rgba(96, 165, 250, .72)",
+                        borderColor = "#60a5fa",
+                        borderWidth = 1,
+                        borderRadius = 4,
+                    }}
+                },
+                options = new
+                {
+                    responsive = true,
+                    maintainAspectRatio = false,
+                    plugins = new { legend = new { display = false } },
+                    scales = new
+                    {
+                        x = new { grid = new { color = chartDefaults.borderColor }, ticks = new { color = chartDefaults.color, maxRotation = 0 } },
+                        y = new { beginAtZero = true, grid = new { color = chartDefaults.borderColor }, ticks = new { color = chartDefaults.color, stepSize = 1 } }
+                    }
+                }
+            });
+        }
+
+        if (_stats.ByActionType.Count > 0)
+        {
+            await JS.InvokeVoidAsync("raizenCharts.create", "actionTypeChart", new
+            {
+                type = "bar",
+                data = new
+                {
+                    labels = _stats.ByActionType.Keys.ToArray(),
+                    datasets = new[] { new
+                    {
+                        label = "Requests",
+                        data = _stats.ByActionType.Values.ToArray(),
+                        backgroundColor = "rgba(34, 197, 94, .68)",
+                        borderColor = "#22c55e",
+                        borderWidth = 1,
+                        borderRadius = 4,
+                    }}
+                },
+                options = new
+                {
+                    indexAxis = "y",
+                    responsive = true,
+                    maintainAspectRatio = false,
+                    plugins = new { legend = new { display = false } },
+                    scales = new
+                    {
+                        x = new { beginAtZero = true, grid = new { color = chartDefaults.borderColor }, ticks = new { color = chartDefaults.color, stepSize = 1 } },
+                        y = new { grid = new { display = false }, ticks = new { color = chartDefaults.color } }
+                    }
+                }
+            });
+        }
+    }
+
+    private static string ExpiryLabel(TimeSpan remaining)
+    {
+        if (remaining <= TimeSpan.Zero) return "expired";
+        var mins = (int)remaining.TotalMinutes;
+        return mins < 60 ? $"{mins}m" : $"{(int)remaining.TotalHours}h {remaining.Minutes}m";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("raizenCharts.destroy", "statusChart");
+            await JS.InvokeVoidAsync("raizenCharts.destroy", "volumeChart");
+            await JS.InvokeVoidAsync("raizenCharts.destroy", "actionTypeChart");
+        }
+        catch { /* ignore JS interop errors during disposal */ }
+    }
+}

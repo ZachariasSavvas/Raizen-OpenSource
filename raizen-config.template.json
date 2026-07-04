@@ -1,0 +1,34 @@
+{
+  "_comment": [
+    "Raizen Endpoint Configuration",
+    "",
+    "HOW TO CHANGE THE SERVER LOCATION:",
+    "  1. Open this file (copy it to %ProgramData%\\Raizen\\raizen-config.json if not already there).",
+    "  2. Update 'ServerUrl' to point to your Raizen API server.",
+    "  3. Save the file — the service picks up the change on the next poll cycle (no restart needed).",
+    "",
+    "CONFIG FILE LOCATION OVERRIDE:",
+    "  Default location : %ProgramData%\\Raizen\\raizen-config.json",
+    "  Environment var  : RAIZEN_CONFIG_PATH=C:\\CustomPath\\raizen-config.json",
+    "  Command-line     : RaizenEndpoint.Service.exe --config=C:\\CustomPath\\raizen-config.json",
+    "                     RaizenEndpoint.Tray.exe    --config=C:\\CustomPath\\raizen-config.json"
+  ],
+
+  "ServerUrl": "https://raizen.contoso.com:5001",
+
+  "TlsPinThumbprint": "",
+
+  "MachineId": "AUTO_GENERATED_ON_FIRST_RUN",
+
+  "ApiKey": "SET_DURING_INSTALLATION",
+
+  "PollIntervalSeconds": 30,
+
+  "HeartbeatIntervalSeconds": 300,
+
+  "HttpProxy": null,
+
+  "HttpTimeoutSeconds": 30,
+
+  "ScriptTimeoutMinutes": 5
+}

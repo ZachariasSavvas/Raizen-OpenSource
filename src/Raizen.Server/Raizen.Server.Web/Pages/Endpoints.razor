@@ -1,0 +1,503 @@
+@page "/endpoints"
+@attribute [Authorize(Policy = "Admin")]
+@implements IAsyncDisposable
+@inject IEndpointService EndpointSvc
+@inject AuthenticationStateProvider Auth
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+<PageTitle>Endpoints | Raizen</PageTitle>
+
+<div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
+    <div>
+        <h1 class="rz-page-title mb-0">Endpoints</h1>
+        <p class="rz-page-subtitle mb-0">
+            Registered machines and agent connectivity status.
+            <span class="text-muted ms-2" style="font-size:.8rem">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refreshes in @_refreshCountdown s
+            </span>
+        </p>
+    </div>
+    @if (_outdatedCount > 0)
+    {
+        <button class="rz-btn rz-btn-primary" @onclick="PushAllOutdated" disabled="@_busy">
+            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-cloud-download me-1"></i>Push Update to All Outdated (@_outdatedCount)
+        </button>
+    }
+</div>
+
+@if (_pushError is not null)
+{
+    <div class="alert alert-danger py-2 mb-3" style="font-size:.85rem;">
+        <i class="bi bi-exclamation-triangle me-1"></i>@_pushError
+    </div>
+}
+@if (_pushSuccess is not null)
+{
+    <div class="alert alert-success py-2 mb-3" style="font-size:.85rem;">
+        <i class="bi bi-check-circle me-1"></i>@_pushSuccess
+    </div>
+}
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_items.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-pc-display"></i>
+            No endpoints registered yet.
+        </div>
+    </div>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon success"><i class="bi bi-wifi"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_items.Count(e => IsOnline(e))</div>
+                    <div class="rz-stat-label">Online</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon" style="background:#f3f4f6;color:#9ca3af"><i class="bi bi-wifi-off"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_items.Count(e => !IsOnline(e))</div>
+                    <div class="rz-stat-label">Offline</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon info"><i class="bi bi-pc-display"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_items.Count</div>
+                    <div class="rz-stat-label">Total Registered</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon danger"><i class="bi bi-slash-circle"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_items.Count(e => !e.IsEnabled)</div>
+                    <div class="rz-stat-label">Disabled</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="rz-stat-card">
+                <div class="rz-stat-icon warning"><i class="bi bi-activity"></i></div>
+                <div>
+                    <div class="rz-stat-value">@_items.Count(HasHealthIssue)</div>
+                    <div class="rz-stat-label">Health Issues</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rz-card">
+        <div style="overflow-x:auto">
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th style="width:130px">Status</th>
+                        <th style="width:200px">Machine</th>
+                        <th style="width:220px">OS</th>
+                        <th style="width:130px">Agent Ver.</th>
+                        <th style="width:220px">Health</th>
+                        <th style="width:160px">Last Seen</th>
+                        <th style="width:160px">Registered</th>
+                        <th style="width:110px">Enabled</th>
+                        <th style="width:100px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var ep in _items)
+                    {
+                        <tr class="@(ep.IsEnabled ? "" : "rz-audit-denied")">
+                            <td>
+                                @if (IsOnline(ep))
+                                {
+                                    <span class="rz-endpoint-status online"><i class="bi bi-circle-fill"></i> Online</span>
+                                }
+                                else if (ep.LastSeenAt is null)
+                                {
+                                    <span class="rz-endpoint-status never"><i class="bi bi-circle"></i> Never seen</span>
+                                }
+                                else
+                                {
+                                    <span class="rz-endpoint-status offline"><i class="bi bi-circle-fill"></i> Offline</span>
+                                }
+                            </td>
+                            <td title="@ep.MachineId">
+                                <a href="endpoints/@ep.Id" style="font-weight:700;font-size:.9rem;color:#111827;text-decoration:none;">
+                                    @ep.MachineName
+                                </a>
+                            </td>
+                            <td style="font-size:.82rem;color:#6b7280" title="@ep.OsVersion">@(ep.OsVersion ?? "—")</td>
+                            <td style="font-size:.8rem">
+                                @if (ep.UpdatePending)
+                                {
+                                    <span class="badge bg-info text-dark me-1" title="Update pushed, waiting for next poll">
+                                        <i class="bi bi-arrow-down-circle me-1"></i>Pending
+                                    </span>
+                                }
+                                @if (ep.AgentVersion is null)
+                                {
+                                    <span style="color:#9ca3af;font-family:monospace">—</span>
+                                }
+                                else if (_latestVersion is not null && IsOutdated(ep))
+                                {
+                                    <span style="font-family:monospace;color:#d97706" title="Latest: @_latestVersion">@ep.AgentVersion <i class="bi bi-arrow-up-circle ms-1" style="color:#d97706"></i></span>
+                                }
+                                else
+                                {
+                                    <span style="font-family:monospace;color:#16a34a">@ep.AgentVersion</span>
+                                }
+                            </td>
+                            <td style="font-size:.8rem">
+                                <div class="d-flex flex-column gap-1">
+                                    @if (!ep.PollSigningConfigured)
+                                    {
+                                        <span class="rz-badge rz-badge-denied" title="ServerPublicKeyPem is missing on the endpoint. Poll responses are rejected.">
+                                            <i class="bi bi-shield-exclamation me-1"></i>No signing key
+                                        </span>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(ep.LastPollError))
+                                    {
+                                        <span class="rz-badge rz-badge-denied" title="@ep.LastPollError">
+                                            <i class="bi bi-wifi-off me-1"></i>Poll failing
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="rz-badge rz-badge-succeeded" title="Last good poll: @FormatDateTime(ep.LastPollSucceededAt)">
+                                            <i class="bi bi-shield-check me-1"></i>Poll OK
+                                        </span>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(ep.LastUpdateError))
+                                    {
+                                        <span class="text-danger" title="@ep.LastUpdateError">
+                                            Update: @FormatUpdateStatus(ep.LastUpdateStatus)
+                                        </span>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(ep.LastUpdateStatus))
+                                    {
+                                        <span class="text-muted" title="Last checked: @FormatDateTime(ep.LastUpdateCheckAt)">
+                                            Update: @FormatUpdateStatus(ep.LastUpdateStatus)
+                                        </span>
+                                    }
+                                </div>
+                            </td>
+                            <td style="font-size:.85rem" title="@(ep.LastSeenAt?.ToString("yyyy-MM-dd HH:mm:ss") + " UTC")">
+                                @FormatLastSeen(ep.LastSeenAt)
+                            </td>
+                            <td style="font-size:.85rem">@ep.RegisteredAt.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                            <td>
+                                @if (ep.IsEnabled)
+                                {
+                                    <span class="badge bg-success" style="font-size:.75rem">Enabled</span>
+                                }
+                                else if (ep.DormantSince.HasValue)
+                                {
+                                    <span class="badge bg-warning text-dark" style="font-size:.75rem"
+                                          title="Auto-disabled, offline since @ep.DormantSince.Value.ToLocalTime().ToString("yyyy-MM-dd")">
+                                        Dormant
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary" style="font-size:.75rem">Disabled</span>
+                                }
+                            </td>
+                            <td class="d-flex gap-1 flex-wrap">
+                                @if (ep.IsEnabled)
+                                {
+                                    <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => Toggle(ep, false)"
+                                            disabled="@_busy" title="Disable endpoint">
+                                        <i class="bi bi-slash-circle"></i> Disable
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="rz-btn rz-btn-primary rz-btn-sm" @onclick="() => Toggle(ep, true)"
+                                            disabled="@_busy" title="Enable endpoint">
+                                        <i class="bi bi-check-circle"></i> Enable
+                                    </button>
+                                }
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => BeginRotate(ep)"
+                                        disabled="@_busy" title="Rotate API key">
+                                    <i class="bi bi-arrow-repeat"></i> Rotate Key
+                                </button>
+                                @if (!ep.UpdatePending && (IsOutdated(ep) || _latestVersion is null))
+                                {
+                                    <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => PushUpdate(ep)"
+                                            disabled="@_busy" title="Push update to this endpoint">
+                                        <i class="bi bi-cloud-download"></i> Push Update
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@* ── Rotate API Key modal ────────────────────────────────────────────────── *@
+@if (_rotateTarget is not null)
+{
+    <div class="rz-modal-backdrop" @onclick="CloseRotate">
+        <div class="rz-modal" @onclick:stopPropagation>
+            <div class="rz-modal-header">
+                <span><i class="bi bi-arrow-repeat me-2"></i>Rotate API Key: @_rotateTarget.MachineName</span>
+                <button class="rz-modal-close" @onclick="CloseRotate">&times;</button>
+            </div>
+            <div class="rz-modal-body">
+                @if (_rotatedKey is null)
+                {
+                    <p class="text-muted" style="font-size:.9rem;">
+                        This will generate a new API key and invalidate the current one.
+                        The endpoint will stop polling until you update its config.
+                    </p>
+                    @if (_rotateError is not null)
+                    {
+                        <div class="alert alert-danger py-2" style="font-size:.85rem;">@_rotateError</div>
+                    }
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="rz-btn rz-btn-danger" @onclick="ConfirmRotate" disabled="@_busy">
+                            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Generate New Key
+                        </button>
+                        <button class="rz-btn rz-btn-ghost" @onclick="CloseRotate">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-warning py-2 mb-3" style="font-size:.85rem;">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                        <strong>Copy this key now.</strong> It will not be shown again.
+                    </div>
+                    <label class="form-label fw-semibold" style="font-size:.82rem;">New API Key</label>
+                    <div class="input-group mb-3">
+                        <input class="form-control form-control-sm" style="font-family:monospace;font-size:.8rem"
+                               readonly value="@_rotatedKey" />
+                        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="CopyKey" title="Copy to clipboard">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                    <p class="text-muted" style="font-size:.82rem;">
+                        On the endpoint machine, edit
+                        <code>C:\ProgramData\Raizen\raizen-config.json</code>
+                        and set <code>"ApiKey"</code> to this value. The service picks it up live, no restart needed.
+                    </p>
+                    <button class="rz-btn rz-btn-primary" @onclick="CloseRotate">Done</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<EndpointRegistrationDto> _items = [];
+    private bool _loading = true;
+    private bool _busy;
+    private string _actorUpn = "admin";
+    private int _refreshCountdown = 30;
+    private CancellationTokenSource _cts = new();
+
+    // Latest version from config (null if AgentDeployment:CurrentVersion not set)
+    private string? _latestVersion;
+    private int _outdatedCount;
+
+    // Push update feedback
+    private string? _pushError;
+    private string? _pushSuccess;
+
+    // Rotate key modal state
+    private EndpointRegistrationDto? _rotateTarget;
+    private string? _rotatedKey;
+    private string? _rotateError;
+
+    // Consider online if heartbeat within 2× the default 5-min heartbeat window
+    private static bool IsOnline(EndpointRegistrationDto ep) =>
+        ep.IsEnabled &&
+        ep.LastSeenAt.HasValue &&
+        (DateTimeOffset.UtcNow - ep.LastSeenAt.Value).TotalMinutes < 10;
+
+    private bool IsOutdated(EndpointRegistrationDto ep)
+    {
+        if (_latestVersion is null || ep.AgentVersion is null) return false;
+        return Version.TryParse(ep.AgentVersion, out var epVer)
+            && Version.TryParse(_latestVersion, out var latestVer)
+            && epVer < latestVer;
+    }
+
+    private static bool HasHealthIssue(EndpointRegistrationDto ep) =>
+        !ep.PollSigningConfigured ||
+        !string.IsNullOrWhiteSpace(ep.LastPollError) ||
+        !string.IsNullOrWhiteSpace(ep.LastUpdateError);
+
+    private static string FormatUpdateStatus(string? status) =>
+        string.IsNullOrWhiteSpace(status)
+            ? "unknown"
+            : status.Replace('-', ' ');
+
+    private static string FormatDateTime(DateTimeOffset? ts) =>
+        ts?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Never";
+
+    private static string FormatLastSeen(DateTimeOffset? ts)
+    {
+        if (ts is null) return "Never";
+        var ago = DateTimeOffset.UtcNow - ts.Value;
+        if (ago.TotalSeconds < 90)  return "Just now";
+        if (ago.TotalMinutes < 60)  return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalHours < 24)    return $"{(int)ago.TotalHours}h ago";
+        return ts.Value.ToLocalTime().ToString("yyyy-MM-dd");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _actorUpn = state.User.Identity?.Name ?? "admin";
+        _latestVersion = Config["AgentDeployment:CurrentVersion"];
+        await Load();
+        _ = RunRefreshLoopAsync(_cts.Token);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        _cts.Dispose();
+    }
+
+    private async Task RunRefreshLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                _refreshCountdown--;
+                if (_refreshCountdown <= 0)
+                {
+                    _refreshCountdown = 30;
+                    try { await InvokeAsync(Load); }
+                    catch (Exception) { /* circuit disposed or DB error — keep ticking */ }
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { /* normal disposal */ }
+    }
+
+    private async Task Load()
+    {
+        _items = (await EndpointSvc.ListAsync()).Where(e => e.DormantSince == null).ToList();
+        _outdatedCount = _items.Count(IsOutdated);
+        _refreshCountdown = 30;
+        _loading = false;
+    }
+
+    private async Task PushUpdate(EndpointRegistrationDto ep)
+    {
+        _busy = true;
+        _pushError = null;
+        _pushSuccess = null;
+        try
+        {
+            await EndpointSvc.PushUpdateAsync([ep.Id], _actorUpn);
+            _pushSuccess = $"Update push queued for {ep.MachineName}. It will update on its next poll.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _pushError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PushAllOutdated()
+    {
+        _busy = true;
+        _pushError = null;
+        _pushSuccess = null;
+        try
+        {
+            var outdatedIds = _items.Where(IsOutdated).Select(e => e.Id).ToList();
+            await EndpointSvc.PushUpdateAsync(outdatedIds, _actorUpn);
+            _pushSuccess = $"Update push queued for {outdatedIds.Count} endpoint(s). They will update on their next poll.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _pushError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Toggle(EndpointRegistrationDto ep, bool enable)
+    {
+        _busy = true;
+        await EndpointSvc.SetEnabledAsync(ep.Id, enable, _actorUpn);
+        await Load();
+        _busy = false;
+    }
+
+    private void BeginRotate(EndpointRegistrationDto ep)
+    {
+        _rotateTarget = ep;
+        _rotatedKey   = null;
+        _rotateError  = null;
+    }
+
+    private async Task ConfirmRotate()
+    {
+        if (_rotateTarget is null) return;
+        _busy = true;
+        _rotateError = null;
+        try
+        {
+            _rotatedKey = await EndpointSvc.RotateApiKeyAsync(_rotateTarget.Id, _actorUpn);
+        }
+        catch (Exception ex)
+        {
+            _rotateError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void CloseRotate()
+    {
+        _rotateTarget = null;
+        _rotatedKey   = null;
+        _rotateError  = null;
+    }
+
+    private async Task CopyKey()
+    {
+        if (_rotatedKey is not null)
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _rotatedKey);
+    }
+}

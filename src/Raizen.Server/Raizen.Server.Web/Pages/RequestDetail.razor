@@ -1,0 +1,489 @@
+@page "/requests/{Id:guid}"
+@attribute [Authorize(Policy = "Operator")]
+@inject IRequestService Requests
+@inject IEndpointService EndpointService
+@inject NavigationManager Nav
+@inject IHttpContextAccessor HttpContextAccessor
+@using Raizen.Shared.DTOs
+@using Raizen.Server.Core.Services
+
+<PageTitle>Request Detail | Raizen</PageTitle>
+
+@if (_request is null)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else
+{
+    <div class="mb-2">
+        <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests">
+            <i class="bi bi-arrow-left"></i> Back to list
+        </a>
+    </div>
+
+    <h1 class="rz-page-title mt-2">@_request.ActionDisplayName</h1>
+    <div class="d-flex align-items-center gap-2 mb-4">
+        <StatusBadge Status="_request.Status" />
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:9999px;font-size:.75rem;font-weight:600;background:#f3f4f6;color:#374151">
+            @ActionTypeIcon(_request.ActionType) @_request.ActionType
+        </span>
+        <span class="text-muted" style="font-size:.8rem">ID: <code>@_request.Id</code></span>
+    </div>
+
+    <div class="rz-detail-grid">
+        <div class="rz-card">
+            <div class="rz-card-header">
+                <i class="bi bi-info-circle text-primary"></i> Request Details
+            </div>
+            <div class="rz-card-body">
+                <dl class="row mb-0" style="font-size:.9rem">
+                    <dt class="col-sm-4 fw-normal text-muted">Requester</dt>
+                    <dd class="col-sm-8">@_request.RequesterUpn</dd>
+
+                    <dt class="col-sm-4 fw-normal text-muted">Machine</dt>
+                    <dd class="col-sm-8"><code style="font-size:.8rem">@_request.TargetMachine</code></dd>
+
+                    <dt class="col-sm-4 fw-normal text-muted">Submitted</dt>
+                    <dd class="col-sm-8">@_request.SubmittedAt.ToLocalTime().ToString("f")</dd>
+
+                    <dt class="col-sm-4 fw-normal text-muted">Expires</dt>
+                    <dd class="col-sm-8 @(_request.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(15) && _request.Status == RequestStatus.Pending ? "rz-expiring" : "")">
+                        @_request.ExpiresAt.ToLocalTime().ToString("f")
+                    </dd>
+
+                    @if (_request.ScheduledForUtc.HasValue)
+                    {
+                        <dt class="col-sm-4 fw-normal text-muted">Scheduled For</dt>
+                        <dd class="col-sm-8">
+                            <span style="color:#7c3aed;"><i class="bi bi-calendar-event me-1"></i>@_request.ScheduledForUtc.Value.ToLocalTime().ToString("f")</span>
+                        </dd>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_request.TicketReference))
+                    {
+                        <dt class="col-sm-4 fw-normal text-muted">Ticket</dt>
+                        <dd class="col-sm-8"><code style="font-size:.8rem">@_request.TicketReference</code></dd>
+                    }
+                </dl>
+            </div>
+        </div>
+
+        <div class="rz-card">
+            <div class="rz-card-header">
+                <i class="bi bi-chat-left-quote text-secondary"></i> Justification &amp; Parameters
+            </div>
+            <div class="rz-card-body">
+                <p style="font-size:.9rem;color:#374151">@_request.Justification</p>
+
+                @if (_request.Parameters.Count > 0)
+                {
+                    <p class="mb-2" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#6b7280">Parameters</p>
+
+                    @if (_request.ActionType == ActionType.RunAsAdmin)
+                    {
+                        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
+                            <span style="font-size:1.3rem">🛡️</span>
+                            <div>
+                                <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Executable</div>
+                                <code style="font-size:.85rem">@_request.Parameters.GetValueOrDefault("ExecutablePath", "—")</code>
+                            </div>
+                        </div>
+                    }
+                    else if (_request.ActionType == ActionType.CopyFile)
+                    {
+                        <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                            <div>
+                                <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Source</div>
+                                <code style="font-size:.85rem">@_request.Parameters.GetValueOrDefault("SourcePath", "—")</code>
+                            </div>
+                            <span style="font-size:1.2rem;color:#9ca3af">→</span>
+                            <div>
+                                <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Destination</div>
+                                <code style="font-size:.85rem">@_request.Parameters.GetValueOrDefault("DestinationPath", "—")</code>
+                            </div>
+                        </div>
+                    }
+                    else if (_request.ActionType == ActionType.SetNetworkConfiguration)
+                    {
+                        var _ncAdapter = _request.Parameters.GetValueOrDefault("AdapterName", "—");
+                        var _ncMode    = _request.Parameters.GetValueOrDefault("Mode", "—");
+                        var _ncIp      = _request.Parameters.GetValueOrDefault("IpAddress", "");
+                        var _ncSubnet  = _request.Parameters.GetValueOrDefault("SubnetMask", "");
+                        var _ncGw      = _request.Parameters.GetValueOrDefault("DefaultGateway", "");
+                        var _ncIsDhcp  = _ncMode.Equals("DHCP", StringComparison.OrdinalIgnoreCase);
+                        <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span style="font-size:1.3rem">🌐</span>
+                                <div>
+                                    <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Adapter</div>
+                                    <code style="font-size:.85rem">@_ncAdapter</code>
+                                </div>
+                            </div>
+                            <table style="border-collapse:collapse;font-size:.875rem;width:100%">
+                                <tr>
+                                    <td style="color:#6b7280;padding:3px 12px 3px 0;width:35%;white-space:nowrap">Mode</td>
+                                    <td>
+                                        @if (_ncIsDhcp)
+                                        {
+                                            <span style="color:#2563eb;font-weight:600">DHCP (automatic)</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:#059669;font-weight:600">Static IP</span>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (!_ncIsDhcp)
+                                {
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0">IP Address</td>
+                                        <td><code style="font-size:.82rem">@_ncIp</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0">Subnet Mask</td>
+                                        <td><code style="font-size:.82rem">@_ncSubnet</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0">Default Gateway</td>
+                                        <td><code style="font-size:.82rem">@(string.IsNullOrEmpty(_ncGw) ? "—" : _ncGw)</code></td>
+                                    </tr>
+                                }
+                            </table>
+                        </div>
+                    }
+                    else if (_request.ActionType == ActionType.OpenFileProperties)
+                    {
+                        var _fpAccount   = _request.Parameters.GetValueOrDefault("Account", "—");
+                        var _fpPerm      = _request.Parameters.GetValueOrDefault("PermissionLevel", "—");
+                        var _fpApplyTo   = _request.Parameters.GetValueOrDefault("ApplyTo", "—");
+                        var _fpIsRemove  = _fpPerm.Equals("Remove", StringComparison.OrdinalIgnoreCase);
+                        var _fpApplyText = _fpApplyTo switch
+                        {
+                            "FolderOnly"  => "This folder only",
+                            "FilesOnly"   => "Files only",
+                            _             => "This folder, subfolders and files",
+                        };
+                        <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span style="font-size:1.3rem">🔒</span>
+                                <div>
+                                    <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">File / Folder</div>
+                                    <code style="font-size:.85rem">@_request.Parameters.GetValueOrDefault("FilePath", "—")</code>
+                                </div>
+                            </div>
+                            <table style="border-collapse:collapse;font-size:.875rem;width:100%">
+                                <tr>
+                                    <td style="color:#6b7280;padding:3px 12px 3px 0;width:30%;white-space:nowrap">Account</td>
+                                    <td><code style="font-size:.82rem">@_fpAccount</code></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#6b7280;padding:3px 12px 3px 0">Operation</td>
+                                    <td>
+                                        @if (_fpIsRemove)
+                                        {
+                                            <span style="color:#dc2626;font-weight:600">Remove Access</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:#059669;font-weight:600">Grant</span>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (!_fpIsRemove)
+                                {
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0">Permission</td>
+                                        <td><strong>@_fpPerm</strong></td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0">Apply To</td>
+                                        <td>@_fpApplyText</td>
+                                    </tr>
+                                }
+                            </table>
+                        </div>
+                    }
+                    else if (_request.ActionType == ActionType.SetEnvironmentVariable)
+                    {
+                        var _evName  = _request.Parameters.GetValueOrDefault("VariableName", "—");
+                        var _evOp    = _request.Parameters.GetValueOrDefault("Operation", "—");
+                        var _evValue = _request.Parameters.GetValueOrDefault("Value", "");
+                        var _evOpColor = _evOp switch
+                        {
+                            "Set"         => "#059669",
+                            "Append"      => "#2563eb",
+                            "Prepend"     => "#2563eb",
+                            "RemoveEntry" => "#d97706",
+                            "Delete"      => "#dc2626",
+                            _             => "#374151",
+                        };
+                        <div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span style="font-size:1.3rem">🔧</span>
+                                <div>
+                                    <div style="font-size:.72rem;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Variable</div>
+                                    <code style="font-size:.85rem">@_evName</code>
+                                </div>
+                                <span style="margin-left:8px;padding:2px 10px;border-radius:9999px;font-size:.75rem;font-weight:700;background:#f3f4f6;color:@_evOpColor">@_evOp</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_evValue))
+                            {
+                                <table style="border-collapse:collapse;font-size:.875rem;width:100%">
+                                    <tr>
+                                        <td style="color:#6b7280;padding:3px 12px 3px 0;width:30%;white-space:nowrap">Value</td>
+                                        <td><code style="font-size:.82rem;word-break:break-all">@_evValue</code></td>
+                                    </tr>
+                                </table>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="rz-table">
+                            <tbody>
+                                @foreach (var p in _request.Parameters.Where(p => !p.Key.StartsWith("__")))
+                                {
+                                    <tr>
+                                        <td style="font-weight:500;color:#374151;width:40%">@p.Key</td>
+                                        <td><code style="font-size:.8rem">@p.Value</code></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_request.ReviewerUpn is not null)
+    {
+        <div class="rz-card">
+            <div class="rz-card-header">
+                <i class="bi bi-person-check text-secondary"></i> Review Decision
+            </div>
+            <div class="rz-card-body" style="font-size:.9rem">
+                <span class="text-muted">Reviewed by</span> <strong>@_request.ReviewerUpn</strong>
+                @if (!string.IsNullOrEmpty(_request.ReviewerNote))
+                {
+                    <p class="mt-2 mb-0 text-muted">@_request.ReviewerNote</p>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_request.ExecutionResult is not null || _request.ExecutionError is not null)
+    {
+        <div class="rz-card" style="border-left: 4px solid @(_request.Status == RequestStatus.Succeeded ? "#059669" : "#dc2626")">
+            <div class="rz-card-header">
+                <i class="bi @(_request.Status == RequestStatus.Succeeded ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle text-danger")"></i>
+                Execution Result
+            </div>
+            <div class="rz-card-body">
+                <code style="font-size:.85rem">@(_request.ExecutionResult ?? _request.ExecutionError)</code>
+            </div>
+        </div>
+    }
+
+    @if (_request.Status == RequestStatus.Pending)
+    {
+        <AuthorizeView Policy="Approver">
+            <Authorized Context="authCtx">
+                <div class="rz-card">
+                    <div class="rz-card-header">
+                        <i class="bi bi-shield-check text-primary"></i> Approve or Deny
+                    </div>
+                    <div class="rz-card-body">
+                        @{
+                            var epMinutesAgo = _endpoint?.LastSeenAt.HasValue == true
+                                ? (DateTimeOffset.UtcNow - _endpoint.LastSeenAt!.Value).TotalMinutes
+                                : double.MaxValue;
+                            var (epColor, epIcon, epLabel) = epMinutesAgo < 10
+                                ? ("#16a34a", "bi-circle-fill", "Online")
+                                : epMinutesAgo < 60
+                                    ? ("#d97706", "bi-circle-fill", $"Last seen {(int)epMinutesAgo}m ago")
+                                    : ("#dc2626", "bi-circle-fill", _endpoint?.LastSeenAt is null
+                                        ? "Never seen"
+                                        : $"Offline — last seen {(int)(epMinutesAgo / 60)}h ago");
+                        }
+                        <div class="mb-3 d-flex align-items-center gap-2" style="font-size:.82rem;">
+                            <span style="font-weight:600;color:#374151;">Target machine:</span>
+                            <span style="color:@epColor;">
+                                <i class="bi @epIcon me-1" style="font-size:.55rem;vertical-align:middle;"></i>@epLabel
+                            </span>
+                            @if (epMinutesAgo >= 10)
+                            {
+                                <span style="color:#6b7280;font-size:.78rem;">— the machine may not execute promptly</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(_error))
+                        {
+                            <div class="alert alert-danger py-2">@_error</div>
+                        }
+                        <EditForm Model="_review" OnValidSubmit="Submit">
+                            <DataAnnotationsValidator />
+                            <div class="mb-3">
+                                <label class="form-label" style="font-size:.875rem">Note (optional)</label>
+                                <InputTextArea class="form-control" @bind-Value="_review.Note" rows="3" />
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="rz-btn rz-btn-success" @onclick="() => _review.Approved = true">
+                                    <i class="bi bi-check-circle"></i> Approve
+                                </button>
+                                <button type="submit" class="rz-btn rz-btn-danger" @onclick="() => _review.Approved = false">
+                                    <i class="bi bi-x-circle"></i> Deny
+                                </button>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    }
+
+    <div class="rz-card">
+        <div class="rz-card-header">
+            <i class="bi bi-chat-dots text-secondary"></i> Comments
+            <span class="ms-1 badge bg-secondary" style="font-size:.7rem">@_comments.Count</span>
+        </div>
+        <div class="rz-card-body">
+            @if (_comments.Count == 0)
+            {
+                <p class="text-muted mb-3" style="font-size:.875rem">No comments yet.</p>
+            }
+            else
+            {
+                <div class="d-flex flex-column gap-3 mb-4">
+                    @foreach (var c in _comments)
+                    {
+                        <div style="display:flex;gap:10px;align-items:flex-start">
+                            <div style="width:32px;height:32px;border-radius:50%;background:@(c.IsAdmin ? "#1d4ed8" : "#6b7280");display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                                <i class="bi @(c.IsAdmin ? "bi-shield-fill" : "bi-person-fill")" style="color:white;font-size:.75rem"></i>
+                            </div>
+                            <div style="flex:1">
+                                <div style="font-size:.8rem;color:#374151;font-weight:600">
+                                    @(string.IsNullOrEmpty(c.AuthorDisplayName) ? c.AuthorUpn : c.AuthorDisplayName)
+                                    @if (c.IsAdmin)
+                                    {
+                                        <span style="margin-left:6px;padding:1px 7px;border-radius:9999px;font-size:.68rem;background:#dbeafe;color:#1d4ed8;font-weight:700">Admin</span>
+                                    }
+                                </div>
+                                <div style="font-size:.75rem;color:#9ca3af;margin-bottom:4px">@c.CreatedAt.ToLocalTime().ToString("f")</div>
+                                <div style="font-size:.875rem;color:#1f2937;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;white-space:pre-wrap">@c.Body</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_commentError))
+            {
+                <div class="alert alert-danger py-2 mb-2">@_commentError</div>
+            }
+            <div class="d-flex gap-2 align-items-end">
+                <textarea class="form-control" rows="2" placeholder="Add a comment…" @bind="_commentBody"
+                          style="font-size:.875rem;resize:vertical"></textarea>
+                <button class="rz-btn rz-btn-primary flex-shrink-0" @onclick="PostComment" disabled="@_postingComment">
+                    @if (_postingComment)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-send"></i>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ElevationRequestDto? _request;
+    private EndpointRegistrationDto? _endpoint;
+    private ReviewRequestDto _review = new();
+    private string? _error;
+
+    private List<RequestCommentDto> _comments = [];
+    private string _commentBody = "";
+    private string _commentError = "";
+    private bool _postingComment;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _request  = await Requests.GetByIdAsync(Id);
+        _comments = await Requests.GetCommentsAsync(Id);
+        if (_request is not null)
+            _endpoint = await EndpointService.GetByIdAsync(_request.EndpointRegistrationId);
+    }
+
+    private static string ActionTypeIcon(ActionType t) => t switch
+    {
+        ActionType.RunAsAdmin              => "🛡️",
+        ActionType.CopyFile                => "📋",
+        ActionType.OpenFileProperties      => "🔒",
+        ActionType.InstallMsi              => "📦",
+        ActionType.SetNetworkConfiguration => "🌐",
+        ActionType.SetEnvironmentVariable  => "🔧",
+        ActionType.StartService or ActionType.StopService or ActionType.RestartService => "⚙️",
+        _ => "⚡",
+    };
+
+    private async Task Submit()
+    {
+        _error = null;
+        try
+        {
+            _request = await Requests.ReviewAsync(Id, _review, GetCurrentUserUpn());
+            Nav.NavigateTo($"/requests/{Id}", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private async Task PostComment()
+    {
+        _commentError = "";
+        if (string.IsNullOrWhiteSpace(_commentBody)) return;
+
+        _postingComment = true;
+        try
+        {
+            var upn  = GetCurrentUserUpn();
+            var name = HttpContextAccessor.HttpContext?.User?.Identity?.Name ?? upn;
+            var comment = await Requests.AddCommentAsync(Id,
+                new AddCommentDto { Body = _commentBody },
+                authorUpn: upn,
+                authorDisplayName: name,
+                isAdmin: true);
+            _comments.Add(comment);
+            _commentBody = "";
+        }
+        catch (Exception ex)
+        {
+            _commentError = ex.Message;
+        }
+        finally
+        {
+            _postingComment = false;
+        }
+    }
+
+    private string GetCurrentUserUpn()
+    {
+        var user = HttpContextAccessor.HttpContext?.User;
+        return user?.FindFirst(System.Security.Claims.ClaimTypes.Upn)?.Value
+            ?? user?.FindFirst("preferred_username")?.Value
+            ?? user?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? user?.Identity?.Name
+            ?? "unknown";
+    }
+}

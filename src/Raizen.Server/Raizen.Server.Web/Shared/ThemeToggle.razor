@@ -1,0 +1,36 @@
+@inject IJSRuntime JS
+
+<button class="rz-theme-toggle" @onclick="Toggle" title="@(_isDark ? "Switch to light mode" : "Switch to dark mode")" aria-label="Toggle dark mode">
+    <span class="rz-theme-toggle-thumb">
+        <i class="bi @(_isDark ? "bi-moon-stars-fill" : "bi-sun-fill")"></i>
+    </span>
+</button>
+
+@code {
+    private bool _isDark;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _isDark = await JS.InvokeAsync<bool>("raizenTheme.isDark");
+                StateHasChanged();
+            }
+            catch (JSDisconnectedException) { }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    private async Task Toggle()
+    {
+        _isDark = !_isDark;
+        try
+        {
+            await JS.InvokeVoidAsync("raizenTheme.set", _isDark ? "dark" : "light");
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+}

@@ -1,0 +1,111 @@
+@page
+@model Raizen.Server.Web.Pages.Auth.TotpModel
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+    var isDark = string.Equals(HttpContext.Request.Cookies["rz-theme"], "dark", StringComparison.OrdinalIgnoreCase);
+}
+<!DOCTYPE html>
+<html lang="en"@(isDark ? " data-theme=\"dark\"" : "")>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Two-Factor Authentication | Raizen</title>
+    <link rel="stylesheet" href="/lib/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="/lib/bootstrap-icons/bootstrap-icons.css" />
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #f4f6fb;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            margin: 0;
+        }
+        .login-wrap { width: 100%; max-width: 420px; padding: 16px; }
+        .login-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 32px rgba(0,0,0,.10);
+            padding: 44px 40px 36px;
+        }
+        .login-logo {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; margin-bottom: 8px;
+        }
+        .login-logo img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; }
+        .login-logo span { font-size: 1.6rem; font-weight: 700; color: #111827; }
+        .login-subtitle { text-align: center; color: #6b7280; font-size: 0.875rem; margin-bottom: 32px; }
+        .form-label { font-weight: 600; font-size: 0.85rem; color: #374151; }
+        .form-control { border-radius: 8px; border: 1px solid #d1d5db; padding: 10px 14px; font-size: 0.9rem; }
+        .form-control:focus { border-color: #4f8ef7; box-shadow: 0 0 0 3px rgba(79,142,247,.15); }
+        .btn-signin {
+            background: #4f8ef7; border: none; border-radius: 8px; color: #fff;
+            font-weight: 600; padding: 11px; font-size: 0.95rem; width: 100%;
+            cursor: pointer; transition: opacity .15s;
+        }
+        .btn-signin:hover { opacity: .88; }
+        .alert-error {
+            background: #fee2e2; color: #991b1b; border-radius: 8px;
+            padding: 10px 14px; font-size: 0.875rem; margin-bottom: 20px;
+        }
+        .code-hint { text-align: center; color: #6b7280; font-size: 0.8rem; margin-top: 12px; }
+        input[type=text].totp-input {
+            font-size: 1.6rem; letter-spacing: .5rem; text-align: center; font-weight: 600;
+        }
+        /* Dark mode */
+        [data-theme="dark"] body { background: #0d1117; color: #e6edf3; }
+        [data-theme="dark"] .login-card { background: #161b22; box-shadow: 0 4px 32px rgba(0,0,0,.4); }
+        [data-theme="dark"] .login-logo span { color: #e6edf3; }
+        [data-theme="dark"] .login-subtitle { color: #8b949e; }
+        [data-theme="dark"] .form-label { color: #c9d1d9; }
+        [data-theme="dark"] .form-control { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+        [data-theme="dark"] .alert-error { background: #3b0d0d; color: #f87171; }
+        [data-theme="dark"] .code-hint { color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-logo">
+                <img src="/images/raizen.jpg" alt="Raizen" onerror="this.style.display='none'" />
+                <span>Raizen</span>
+            </div>
+            <p class="login-subtitle">
+                <i class="bi bi-shield-lock me-1"></i>Two-Factor Authentication
+            </p>
+
+            @if (Model.ErrorMessage != null)
+            {
+                <div class="alert-error">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>@Model.ErrorMessage
+                </div>
+            }
+
+            <form method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="ReturnUrl" />
+                <div class="mb-4">
+                    <label class="form-label" for="Code">Authenticator Code</label>
+                    <input id="Code" asp-for="Code" type="text" class="form-control totp-input"
+                           inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                           placeholder="000000" autofocus />
+                </div>
+                <button type="submit" class="btn-signin">
+                    <i class="bi bi-shield-check me-1"></i> Verify
+                </button>
+            </form>
+            <p class="code-hint mt-3">
+                Open your authenticator app and enter the 6-digit code.
+            </p>
+            <p class="code-hint">
+                <a href="/Auth/Login" style="color:#4f8ef7;">← Back to login</a>
+            </p>
+        </div>
+        <p class="text-center text-muted mt-3" style="font-size:.75rem;">
+            Authorized access only
+        </p>
+    </div>
+</body>
+</html>

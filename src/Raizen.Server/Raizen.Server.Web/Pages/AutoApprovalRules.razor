@@ -1,0 +1,270 @@
+@page "/auto-approval"
+@attribute [Authorize(Policy = "Admin")]
+@inject IAutoApprovalService AutoApproval
+@inject IActionCatalogService Catalog
+@inject IHttpContextAccessor HttpContextAccessor
+@inject ILicenseService LicenseSvc
+@using Raizen.Server.Core.Licensing
+@using Raizen.Server.Core.Services
+@using Raizen.Shared.DTOs
+@using Raizen.Shared.Enums
+
+<PageTitle>Auto-Approval Rules | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Auto-Approval Rules</h1>
+<p class="rz-page-subtitle">Requests matching any enabled rule are automatically approved without manual review.</p>
+
+@if (!_hasFeature)
+{
+    <UpgradeBanner Title="Auto-Approval Rules">
+        Configure rules to automatically approve low-risk requests without manual review.
+    </UpgradeBanner>
+}
+else
+{
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger py-2 mb-3">@_error</div>
+}
+@if (!string.IsNullOrEmpty(_success))
+{
+    <div class="alert alert-success py-2 mb-3">@_success</div>
+}
+
+<div class="rz-card mb-4">
+    <div class="rz-card-header">
+        <i class="bi bi-plus-circle text-primary"></i> New Rule
+    </div>
+    <div class="rz-card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label form-label-sm">Rule Name</label>
+                <input class="form-control form-control-sm" placeholder="e.g. Allow IT staff to restart services" @bind="_newName" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Action Type</label>
+                <select class="form-select form-select-sm" @bind="_newActionType">
+                    <option value="">Any</option>
+                    @foreach (var at in Enum.GetValues<ActionType>())
+                    {
+                        <option value="@((int)at)">@at</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label form-label-sm">Action Definition</label>
+                <select class="form-select form-select-sm" @bind="_newActionDefinitionId">
+                    <option value="">Any</option>
+                    @foreach (var a in _actions)
+                    {
+                        <option value="@a.Id">@a.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label form-label-sm">Requester UPN Pattern</label>
+                <input class="form-control form-control-sm" placeholder="e.g. *@@contoso.com or user@@domain" @bind="_newUpnPattern" />
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button class="rz-btn rz-btn-primary w-100" @onclick="CreateRule">
+                    <i class="bi bi-plus"></i> Add
+                </button>
+            </div>
+        </div>
+        <div class="mt-2" style="font-size:.78rem;color:#6b7280">
+            Leave Action Type / Definition blank to match all. UPN pattern supports <code>*</code> wildcard (e.g. <code>*&#64;corp.com</code>).
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_rules.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-shield-check"></i>
+            No auto-approval rules configured. All requests require manual review.
+        </div>
+    </div>
+}
+else
+{
+    <div class="rz-card">
+        <div style="overflow-x:auto">
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="width:160px">Action Type</th>
+                        <th style="width:200px">Action Definition</th>
+                        <th style="width:200px">UPN Pattern</th>
+                        <th style="width:80px">Status</th>
+                        <th style="width:130px">Created By</th>
+                        <th style="width:110px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var rule in _rules)
+                    {
+                        <tr>
+                            <td style="font-weight:500">@rule.Name</td>
+                            <td><code style="font-size:.78rem">@(rule.ActionType?.ToString() ?? "Any")</code></td>
+                            <td>
+                                @if (rule.ActionDefinitionId.HasValue)
+                                {
+                                    <code style="font-size:.78rem">@(_actions.FirstOrDefault(a => a.Id == rule.ActionDefinitionId)?.DisplayName ?? rule.ActionDefinitionId.ToString())</code>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Any</span>
+                                }
+                            </td>
+                            <td><code style="font-size:.78rem">@(rule.RequesterUpnPattern ?? "*")</code></td>
+                            <td>
+                                @if (rule.IsEnabled)
+                                {
+                                    <span style="color:#059669;font-weight:600;font-size:.8rem">Enabled</span>
+                                }
+                                else
+                                {
+                                    <span style="color:#6b7280;font-size:.8rem">Disabled</span>
+                                }
+                            </td>
+                            <td style="font-size:.8rem;color:#6b7280">@rule.CreatedBy</td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <button class="rz-btn rz-btn-ghost rz-btn-sm" title="@(rule.IsEnabled ? "Disable" : "Enable")"
+                                            @onclick="() => ToggleRule(rule.Id)">
+                                        <i class="bi @(rule.IsEnabled ? "bi-pause-circle" : "bi-play-circle")"></i>
+                                    </button>
+                                    <button class="rz-btn rz-btn-ghost rz-btn-sm text-danger" title="Delete"
+                                            @onclick="() => DeleteRule(rule.Id)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+} @* end else _hasFeature *@
+
+@code {
+    private bool _hasFeature;
+    private List<AutoApprovalRuleDto>   _rules   = [];
+    private List<ActionDefinitionDto>   _actions = [];
+    private bool   _loading = true;
+    private string _error   = "";
+    private string _success = "";
+
+    // New rule form
+    private string _newName             = "";
+    private string _newActionType       = "";
+    private string _newActionDefinitionId = "";
+    private string _newUpnPattern       = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hasFeature = LicenseSvc.HasFeature(LicenseFeature.AutoApprovalRules);
+        if (!_hasFeature) { _loading = false; return; }
+        _actions = await Catalog.ListAsync();
+        await LoadRules();
+    }
+
+    private async Task LoadRules()
+    {
+        _loading = true;
+        _rules   = await AutoApproval.ListRulesAsync();
+        _loading = false;
+    }
+
+    private async Task CreateRule()
+    {
+        _error   = "";
+        _success = "";
+
+        if (string.IsNullOrWhiteSpace(_newName))
+        {
+            _error = "Rule name is required.";
+            return;
+        }
+
+        ActionType? actionType = null;
+        if (!string.IsNullOrEmpty(_newActionType) && int.TryParse(_newActionType, out var atInt))
+            actionType = (ActionType)atInt;
+
+        Guid? actionDefId = null;
+        if (!string.IsNullOrEmpty(_newActionDefinitionId) && Guid.TryParse(_newActionDefinitionId, out var defGuid))
+            actionDefId = defGuid;
+
+        try
+        {
+            await AutoApproval.CreateRuleAsync(new CreateAutoApprovalRuleDto
+            {
+                Name                = _newName.Trim(),
+                ActionType          = actionType,
+                ActionDefinitionId  = actionDefId,
+                RequesterUpnPattern = string.IsNullOrWhiteSpace(_newUpnPattern) ? null : _newUpnPattern.Trim(),
+            }, GetCurrentUser());
+
+            _newName             = "";
+            _newActionType       = "";
+            _newActionDefinitionId = "";
+            _newUpnPattern       = "";
+            _success = "Rule created.";
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task ToggleRule(Guid id)
+    {
+        _error = _success = "";
+        try
+        {
+            await AutoApproval.ToggleRuleAsync(id);
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteRule(Guid id)
+    {
+        _error = _success = "";
+        try
+        {
+            await AutoApproval.DeleteRuleAsync(id);
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private string GetCurrentUser()
+    {
+        var user = HttpContextAccessor.HttpContext?.User;
+        return user?.FindFirst(System.Security.Claims.ClaimTypes.Upn)?.Value
+            ?? user?.FindFirst("preferred_username")?.Value
+            ?? user?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? user?.Identity?.Name
+            ?? "unknown";
+    }
+}

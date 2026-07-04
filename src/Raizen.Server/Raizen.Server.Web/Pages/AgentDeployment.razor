@@ -1,0 +1,405 @@
+@page "/agent-deployment"
+@inject IServiceScopeFactory ScopeFactory
+@inject IConfiguration Config
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+@inject ILicenseService LicenseSvc
+
+<PageTitle>Agent Deployment | Raizen</PageTitle>
+@using System.Net.NetworkInformation
+@using System.Net.Sockets
+@using System.Web
+@using Raizen.Server.Core.Licensing
+@using Raizen.Server.Core.Services
+@using Raizen.Shared.DTOs
+
+<div class="rz-card mt-4">
+    <div class="rz-card-header">
+        <i class="bi bi-box-arrow-down"></i> Agent Deployment
+    </div>
+    <div class="rz-card-body">
+
+        @* ── Auto-update status ──────────────────────────────────────────────── *@
+        @if (!_hasAutoUpdate)
+        {
+            <UpgradeBanner Title="Agent Auto-Update">
+                Endpoints automatically check for updates and self-update within 4 hours.
+            </UpgradeBanner>
+        }
+        else
+        {
+            var currentVersion = Config["AgentDeployment:CurrentVersion"];
+            var hasMsi         = !string.IsNullOrWhiteSpace(Config["AgentDeployment:InstallerPath"]);
+        <div class="rz-card mb-4 p-3 rounded">
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="bi bi-arrow-repeat" style="color:#10164A"></i>
+                <strong style="font-size:.9rem;">Auto-Update</strong>
+            </div>
+            @if (string.IsNullOrWhiteSpace(currentVersion))
+            {
+                <p class="text-muted mb-0" style="font-size:.82rem;">
+                    Not configured. Set <code>AgentDeployment:CurrentVersion</code> in
+                    <code>appsettings.Production.json</code> (e.g. <code>"1.0.14"</code>) after each release.
+                    Endpoints check every 4 hours and will self-update automatically.
+                </p>
+            }
+            else
+            {
+                var upToDate  = _endpoints.Count(e => e.AgentVersion == currentVersion);
+                var outdated  = _endpoints.Count(e => e.AgentVersion != null && e.AgentVersion != currentVersion);
+                var unknown   = _endpoints.Count(e => e.AgentVersion == null);
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <span style="font-size:.85rem;">
+                        Current release: <strong>@currentVersion</strong>
+                        @if (!hasMsi)
+                        {
+                            <span class="text-danger ms-2" style="font-size:.78rem;">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>MSI not found at configured path
+                            </span>
+                        }
+                    </span>
+                    @if (upToDate > 0)
+                    {
+                        <span class="badge bg-success">@upToDate up to date</span>
+                    }
+                    @if (outdated > 0)
+                    {
+                        <span class="badge bg-warning text-dark">@outdated outdated</span>
+                    }
+                    @if (unknown > 0)
+                    {
+                        <span class="badge bg-secondary">@unknown never reported</span>
+                    }
+                    @if (outdated > 0)
+                    {
+                        <span class="text-muted" style="font-size:.78rem;">Outdated endpoints will update within 4 hours.</span>
+                    }
+                </div>
+            }
+        </div>
+        } @* end auto-update else *@
+
+        <hr class="my-3" />
+
+        @* ── Registration tokens ──────────────────────────────────────────── *@
+        @if (!_hasRegTokens)
+        {
+            <UpgradeBanner Title="Registration Tokens">
+                Generate deployment packages with one-time registration tokens for automated endpoint enrollment.
+            </UpgradeBanner>
+        }
+        else
+        {
+        @* ── Active tokens table ────────────────────────────────────────────── *@
+        @if (_tokens == null)
+        {
+            <p class="text-muted">Loading...</p>
+        }
+        else if (_tokens.Count == 0)
+        {
+            <div class="rz-empty">
+                <i class="bi bi-ticket-perforated"></i>
+                <span>No deployment tokens yet. Generate one below.</span>
+            </div>
+        }
+        else
+        {
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th>Label</th>
+                        <th>Created</th>
+                        <th>Expires</th>
+                        <th>Uses</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in _tokens)
+                    {
+                        <tr>
+                            <td><strong>@t.Label</strong></td>
+                            <td class="text-muted" style="font-size:.8rem;">@t.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td class="text-muted" style="font-size:.8rem;">
+                                @if (t.IsNeverExpires) { <span>Never</span> } else { @t.ExpiresAt.ToString("yyyy-MM-dd") }
+                            </td>
+                            <td style="font-size:.8rem;">@t.UseCount / @t.MaxUses</td>
+                            <td>
+                                @if (!t.IsActive)
+                                {
+                                    <span class="rz-badge rz-badge-cancelled">Revoked</span>
+                                }
+                                else if (t.IsExpired)
+                                {
+                                    <span class="rz-badge rz-badge-cancelled">Expired</span>
+                                }
+                                else if (t.Remaining == 0)
+                                {
+                                    <span class="rz-badge rz-badge-cancelled">Exhausted</span>
+                                }
+                                else
+                                {
+                                    <span class="rz-badge rz-badge-succeeded">Active</span>
+                                }
+                            </td>
+                            <td class="d-flex gap-1">
+                                @if (t.IsActive && !t.IsExpired && t.Remaining > 0)
+                                {
+                                    <button class="rz-btn rz-btn-warning rz-btn-sm"
+                                            @onclick="() => Revoke(t.Id)">
+                                        <i class="bi bi-x-circle"></i> Revoke
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="rz-btn rz-btn-danger rz-btn-sm"
+                                            @onclick="() => Delete(t.Id, t.Label)">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <hr class="my-4" />
+
+        @* ── Generate new token form ─────────────────────────────────────────── *@
+        <h6 class="fw-semibold mb-3">
+            <i class="bi bi-download me-1"></i> Generate New Deployment Package
+        </h6>
+
+        <div class="row g-3 align-items-end" style="max-width:1040px;">
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">
+                    Label <span class="text-danger">*</span>
+                </label>
+                <input class="form-control form-control-sm" @bind="_label"
+                       placeholder="e.g. Finance dept rollout" />
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Server URL</label>
+                <select class="form-select form-select-sm" @bind="_selectedServerUrl">
+                    @foreach (var url in _serverUrlOptions)
+                    {
+                        <option value="@url">@url</option>
+                    }
+                </select>
+            </div>
+            <div class="col-sm-2">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Expires After</label>
+                <select class="form-select form-select-sm" @bind="_expiryHours">
+                    <option value="168">7 days</option>
+                    <option value="720">30 days</option>
+                    <option value="2160">90 days</option>
+                    <option value="0">Never</option>
+                </select>
+            </div>
+            <div class="col-sm-2">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Max Machines</label>
+                <input class="form-control form-control-sm" type="number" min="1" max="10000"
+                       @bind="_maxUses" />
+            </div>
+            <div class="col-sm-2">
+                <button class="rz-btn rz-btn-primary w-100" @onclick="GenerateAndDownload"
+                        disabled="@_busy">
+                    @if (_busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-download me-1"></i>
+                    }
+                    Generate
+                </button>
+            </div>
+        </div>
+
+        @if (_error != null)
+        {
+            <div class="alert alert-danger mt-3 py-2" style="font-size:.875rem;">
+                <i class="bi bi-exclamation-triangle me-1"></i>@_error
+            </div>
+        }
+        @if (_successMsg != null)
+        {
+            <div class="alert alert-success mt-3 py-2" style="font-size:.875rem;">
+                <i class="bi bi-check-circle me-1"></i>@_successMsg
+            </div>
+        }
+
+        <div class="alert alert-warning mt-3 py-2" style="font-size:.82rem;">
+            <i class="bi bi-shield-lock me-1"></i>
+            <strong>Security:</strong> The downloaded ZIP contains a secret registration token.
+            Treat it like a password; distribute over a secure channel (e.g. Intune, SCCM, GPO).
+            Each machine uses the token once on first boot to obtain a permanent, unique API key.
+        </div>
+
+        } @* end reg-tokens else *@
+
+    </div>
+</div>
+
+@code {
+    private bool _hasAutoUpdate;
+    private bool _hasRegTokens;
+    private List<RegistrationTokenDto>? _tokens;
+    private List<EndpointRegistrationDto> _endpoints = [];
+    private string _label     = string.Empty;
+    private int    _expiryHours = 720;
+    private int    _maxUses   = 100;
+    private bool   _busy;
+    private string? _error;
+    private string? _successMsg;
+
+    private List<string> _serverUrlOptions  = new();
+    private string       _selectedServerUrl = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hasAutoUpdate = LicenseSvc.HasFeature(LicenseFeature.AgentAutoUpdate);
+        _hasRegTokens = LicenseSvc.HasFeature(LicenseFeature.RegistrationTokens);
+
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        var svc = scope.ServiceProvider.GetRequiredService<IRegistrationTokenService>();
+        _tokens = await svc.ListAsync();
+
+        await using var scope2 = ScopeFactory.CreateAsyncScope();
+        var epSvc = scope2.ServiceProvider.GetRequiredService<IEndpointService>();
+        _endpoints = await epSvc.ListAsync();
+
+        var configuredUrl = Config["AgentDeployment:ServerUrl"]
+                         ?? Config["RaizenApi:BaseUrl"]
+                         ?? "http://localhost:5001";
+
+        if (Uri.TryCreate(configuredUrl, UriKind.Absolute, out var baseUri))
+        {
+            var scheme = baseUri.Scheme;
+            var port   = baseUri.Port;
+
+            var localIps = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(ni => ni.OperationalStatus == OperationalStatus.Up
+                          && ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
+                .Where(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                .Select(ua => $"{scheme}://{ua.Address}:{port}")
+                .Distinct()
+                .ToList();
+
+            // Always include the configured URL first; append discovered IPs below it
+            _serverUrlOptions.Add(configuredUrl);
+            foreach (var ip in localIps.Where(u => u != configuredUrl))
+                _serverUrlOptions.Add(ip);
+        }
+        else
+        {
+            _serverUrlOptions.Add(configuredUrl);
+        }
+
+        _selectedServerUrl = _serverUrlOptions[0];
+    }
+
+    private async Task GenerateAndDownload()
+    {
+        _error      = null;
+        _successMsg = null;
+
+        if (string.IsNullOrWhiteSpace(_label))
+        {
+            _error = "Label is required.";
+            return;
+        }
+
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var auth  = await AuthState.GetAuthenticationStateAsync();
+            var actor = auth.User.Identity?.Name ?? "admin";
+
+            var dto = new CreateRegistrationTokenDto
+            {
+                Label       = _label.Trim(),
+                ExpiryHours = _expiryHours == 0 ? null : _expiryHours,
+                MaxUses     = _maxUses,
+            };
+
+            CreateRegistrationTokenResponseDto result;
+            await using (var scope = ScopeFactory.CreateAsyncScope())
+            {
+                var svc = scope.ServiceProvider.GetRequiredService<IRegistrationTokenService>();
+                result = await svc.CreateAsync(dto, actor);
+            }
+
+            // Build a direct download URL — the controller streams the ZIP over plain HTTP
+            // so no binary data flows through the Blazor Server SignalR channel.
+            var expiresAt = _expiryHours == 0 ? string.Empty : result.ExpiresAt.ToString("yyyy-MM-dd HH:mm");
+            var qs = HttpUtility.ParseQueryString(string.Empty);
+            qs["token"]     = result.PlaintextToken;
+            qs["serverUrl"] = _selectedServerUrl;
+            qs["label"]     = _label.Trim();
+            qs["expiresAt"] = expiresAt;
+            qs["maxUses"]   = _maxUses.ToString();
+            Nav.NavigateTo($"/deployment/download?{qs}", forceLoad: true);
+
+            var expiryDesc = _expiryHours == 0
+                ? "never expires"
+                : $"valid until {result.ExpiresAt:yyyy-MM-dd HH:mm} UTC";
+            _successMsg = $"Package '{_label}' generated. Token {expiryDesc}, up to {_maxUses} machine(s).";
+            _label = string.Empty;
+
+            await using (var scope = ScopeFactory.CreateAsyncScope())
+            {
+                var svc = scope.ServiceProvider.GetRequiredService<IRegistrationTokenService>();
+                _tokens = await svc.ListAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Revoke(Guid id)
+    {
+        var auth  = await AuthState.GetAuthenticationStateAsync();
+        var actor = auth.User.Identity?.Name ?? "admin";
+        await using (var scope = ScopeFactory.CreateAsyncScope())
+        {
+            var svc = scope.ServiceProvider.GetRequiredService<IRegistrationTokenService>();
+            await svc.RevokeAsync(id, actor);
+            _tokens = await svc.ListAsync();
+        }
+    }
+
+    private async Task Delete(Guid id, string label)
+    {
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm", $"Permanently delete the token '{label}'? This cannot be undone.");
+        if (!confirmed) return;
+
+        _error = null;
+        var auth  = await AuthState.GetAuthenticationStateAsync();
+        var actor = auth.User.Identity?.Name ?? "admin";
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var svc = scope.ServiceProvider.GetRequiredService<IRegistrationTokenService>();
+            await svc.DeleteAsync(id, actor);
+            _tokens = await svc.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,98 @@
+version: "3.9"
+
+# ── Raizen Security Server Stack ───────────────────────────────────────────────
+#
+# Required .env variables (see deploy-server.sh for setup):
+#   POSTGRES_PASSWORD          — PostgreSQL password
+#   RAIZEN_ENCRYPTION_KEY      — AES-256 key for admin password encryption (min 32 chars)
+#   RAIZEN_POLL_SIGNING_KEY    — RSA private key PEM for poll response signing
+#   AZURE_TENANT_ID            — Azure AD tenant ID
+#   AZURE_CLIENT_ID_API        — App registration client ID for the API
+#   AZURE_CLIENT_ID_WEB        — App registration client ID for the web portal
+#   AZURE_CLIENT_SECRET_WEB    — Client secret for the web portal app registration
+#
+# TLS certificates:
+#   Place cert at:  nginx/certs/raizen.crt
+#   Place key at:   nginx/certs/raizen.key
+#   Run scripts/gen-self-signed-cert.sh for a self-signed cert (testing only).
+#
+# ───────────────────────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: raizen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: raizen
+      POSTGRES_USER: raizen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # No host port exposure — only reachable within the Docker network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raizen -d raizen"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  raizen-api:
+    build:
+      context: .
+      dockerfile: src/Raizen.Server/Raizen.Server.Api/Dockerfile
+    container_name: raizen-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=raizen;Username=raizen;Password=${POSTGRES_PASSWORD}"
+      AzureAd__TenantId: ${AZURE_TENANT_ID}
+      AzureAd__ClientId: ${AZURE_CLIENT_ID_API}
+      Security__PollSigningPrivateKeyPem: ${RAIZEN_POLL_SIGNING_KEY:-}
+    # No host port exposure — nginx proxies all inbound traffic
+    volumes:
+      - api_logs:/app/logs
+
+  raizen-web:
+    build:
+      context: .
+      dockerfile: src/Raizen.Server/Raizen.Server.Web/Dockerfile
+    container_name: raizen-web
+    restart: unless-stopped
+    depends_on:
+      - raizen-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5002
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=raizen;Username=raizen;Password=${POSTGRES_PASSWORD}"
+      Security__EncryptionKey: ${RAIZEN_ENCRYPTION_KEY:?RAIZEN_ENCRYPTION_KEY must be set}
+      Security__PollSigningPrivateKeyPem: ${RAIZEN_POLL_SIGNING_KEY:-}
+      RaizenApi__BaseUrl: http://raizen-api:5001
+      AzureAd__TenantId: ${AZURE_TENANT_ID:-}
+      AzureAd__ClientId: ${AZURE_CLIENT_ID_WEB:-}
+      AzureAd__ClientSecret: ${AZURE_CLIENT_SECRET_WEB:-}
+    # No host port exposure — nginx proxies all inbound traffic
+    volumes:
+      - web_logs:/app/logs
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: raizen-nginx
+    restart: unless-stopped
+    depends_on:
+      - raizen-api
+      - raizen-web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  postgres_data:
+  api_logs:
+  web_logs:

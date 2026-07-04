@@ -1,0 +1,53 @@
+@page "/"
+@namespace Raizen.Server.Web.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+    var savedTheme = HttpContext.Request.Cookies["rz-theme"];
+    var isDark = !string.Equals(savedTheme, "light", StringComparison.OrdinalIgnoreCase);
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="@(isDark ? "dark" : "light")">
+<head>
+    <script>
+        // Apply saved theme before CSS loads to prevent flash (checks localStorage + cookie)
+        (function(){
+            var t;
+            try{t=localStorage.getItem('rz-theme')}catch(e){}
+            if(!t){try{var m=document.cookie.match(/(?:^|;\s*)rz-theme=(\w+)/);if(m)t=m[1]}catch(e){}}
+            t=t==='light'?'light':'dark';
+            if(t==='dark'){
+                document.documentElement.setAttribute('data-theme','dark');
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+            }
+            var c='rz-theme='+t+';path=/;max-age=31536000;SameSite=Strict';
+            if(location.protocol==='https:')c+=';Secure';
+            try{document.cookie=c}catch(e){}
+            try{localStorage.setItem('rz-theme',t)}catch(e){}
+        })();
+    </script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Raizen Admin Portal</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <base href="~/" />
+    <link rel="stylesheet" href="lib/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.css" />
+    <link rel="stylesheet" href="lib/fonts/fonts.css" />
+    <link rel="stylesheet" href="css/raizen.css" />
+    <link rel="stylesheet" href="Raizen.Server.Web.styles.css" />
+</head>
+<body>
+    <component type="typeof(App)" render-mode="ServerPrerendered" />
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="lib/chartjs/chart.umd.min.js"></script>
+    <script src="js/col-resize.js"></script>
+    <script src="js/raizen.js"></script>
+    <script src="_framework/blazor.server.js"></script>
+</body>
+</html>

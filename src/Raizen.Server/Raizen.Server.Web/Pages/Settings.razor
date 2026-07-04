@@ -1,0 +1,433 @@
+@page "/settings"
+@attribute [Authorize(Policy = "Admin")]
+@inject IAdminAuthService AdminAuth
+@inject AuthenticationStateProvider AuthStateProvider
+@using Raizen.Server.Core.Models
+@using Raizen.Server.Core.Services
+@using QRCoder
+@using System.Security.Claims
+
+<PageTitle>Settings | Raizen</PageTitle>
+
+<div class="rz-page-title"><i class="bi bi-gear"></i> Settings</div>
+<div class="rz-page-subtitle">Manage admin users and portal access.</div>
+
+<div class="rz-card">
+    <div class="rz-card-header">
+        <i class="bi bi-people"></i> Admin Users
+    </div>
+    <div class="rz-card-body">
+        @if (_users == null)
+        {
+            <p class="text-muted">Loading...</p>
+        }
+        else if (_users.Count == 0)
+        {
+            <div class="rz-empty"><i class="bi bi-people"></i><span>No admin users found.</span></div>
+        }
+        else
+        {
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Created</th>
+                        <th>Last Login</th>
+                        <th>Status</th>
+                        <th>2FA</th>
+                        <th>MFA Required</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var u in _users)
+                    {
+                        <tr>
+                            <td><strong>@u.Username</strong></td>
+                            <td><span class="rz-badge rz-badge-approved" style="font-size:.7rem">@u.Role</span></td>
+                            <td class="text-muted" style="font-size:.8rem;">@u.CreatedAt.ToString("yyyy-MM-dd")</td>
+                            <td class="text-muted" style="font-size:.8rem;">@(u.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</td>
+                            <td>
+                                @if (u.IsActive)
+                                {
+                                    <span class="rz-badge rz-badge-succeeded">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="rz-badge rz-badge-cancelled">Disabled</span>
+                                }
+                            </td>
+                            <td>
+                                @if (u.TotpEnabled)
+                                {
+                                    <span class="rz-badge rz-badge-succeeded"><i class="bi bi-shield-lock-fill"></i> Enabled</span>
+                                }
+                                else
+                                {
+                                    <span class="rz-badge rz-badge-off">Off</span>
+                                }
+                            </td>
+                            <td>
+                                @if (u.RequiresMfa)
+                                {
+                                    <span class="rz-badge rz-badge-approved" title="This account must enrol MFA">
+                                        <i class="bi bi-shield-check"></i> Yes
+                                    </span>
+                                    @if (!u.TotpEnabled && u.MfaDeadline.HasValue)
+                                    {
+                                        var daysLeft = (int)Math.Ceiling((u.MfaDeadline.Value - DateTimeOffset.UtcNow).TotalDays);
+                                        <span class="ms-1 text-@(daysLeft <= 1 ? "danger" : "warning")" style="font-size:.75rem">
+                                            @(daysLeft > 0 ? $"{daysLeft}d left" : "EXPIRED")
+                                        </span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted" style="font-size:.82rem">No</span>
+                                }
+                            </td>
+                            <td>
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm"
+                                        @onclick="() => StartResetPassword(u.Id, u.Username)">
+                                    <i class="bi bi-key"></i> Reset Password
+                                </button>
+                                @if (u.Id == _currentUserId)
+                                {
+                                    @if (!u.TotpEnabled)
+                                    {
+                                        <button class="rz-btn rz-btn-ghost rz-btn-sm ms-1"
+                                                @onclick="() => StartTotpSetup(u.Id, u.Username)">
+                                            <i class="bi bi-shield-plus"></i> Setup 2FA
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="rz-btn rz-btn-warning rz-btn-sm ms-1"
+                                                @onclick="() => RemoveTotp(u.Id)">
+                                            <i class="bi bi-shield-x"></i> Remove 2FA
+                                        </button>
+                                    }
+                                }
+                                <button class="rz-btn rz-btn-sm ms-1 @(u.RequiresMfa ? "rz-btn-ghost" : "rz-btn-primary")"
+                                        title="@(u.RequiresMfa ? "Remove MFA requirement" : "Require MFA for this account")"
+                                        @onclick="() => ToggleRequiresMfa(u.Id, u.RequiresMfa)">
+                                    <i class="bi bi-@(u.RequiresMfa ? "shield-minus" : "shield-plus")"></i>
+                                    @(u.RequiresMfa ? "MFA Off" : "Require MFA")
+                                </button>
+                                @if (u.IsActive)
+                                {
+                                    <button class="rz-btn rz-btn-warning rz-btn-sm ms-1"
+                                            @onclick="() => SetActive(u.Id, false)">
+                                        <i class="bi bi-pause-circle"></i> Disable
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="rz-btn rz-btn-success rz-btn-sm ms-1"
+                                            @onclick="() => SetActive(u.Id, true)">
+                                        <i class="bi bi-play-circle"></i> Enable
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <hr class="my-4" />
+
+        <h6 class="fw-semibold mb-3"><i class="bi bi-person-plus me-1"></i> Add Admin User</h6>
+        <div class="row g-3 align-items-end" style="max-width:800px;">
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Username</label>
+                <input class="form-control form-control-sm" @bind="_newUsername" placeholder="e.g. john.doe" />
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Initial Password</label>
+                <input class="form-control form-control-sm" type="password" @bind="_newPassword"
+                       placeholder="Min 12 characters" />
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:.82rem;font-weight:600;">Role</label>
+                <select class="form-select form-select-sm" @bind="_newRole">
+                    <option value="Admin">Admin</option>
+                    <option value="Approver">Approver</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Auditor">Auditor</option>
+                </select>
+            </div>
+            <div class="col-sm-3">
+                <button class="rz-btn rz-btn-primary" @onclick="CreateUser">
+                    <i class="bi bi-person-plus"></i> Create User
+                </button>
+            </div>
+        </div>
+        <p class="text-muted mt-2" style="font-size:.8rem;">
+            New users must change their password and enrol MFA within 7 days of first login.
+            Roles: <strong>Admin</strong> (full access), <strong>Approver</strong> (approve/deny + operations), <strong>Operator</strong> (view pending + operations), <strong>Auditor</strong> (read-only: dashboard, audit logs, request history).
+        </p>
+
+        @if (_createError != null)
+        {
+            <div class="alert alert-danger mt-2 py-2" style="font-size:.875rem;">
+                <i class="bi bi-exclamation-triangle me-1"></i>@_createError
+            </div>
+        }
+        @if (_createSuccess != null)
+        {
+            <div class="alert alert-success mt-2 py-2" style="font-size:.875rem;">
+                <i class="bi bi-check-circle me-1"></i>@_createSuccess
+            </div>
+        }
+    </div>
+</div>
+
+@if (_totpSetupUserId.HasValue)
+{
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;display:flex;align-items:center;justify-content:center;"
+         @onclick="CancelTotpSetup">
+        <div style="background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.18);width:100%;max-width:580px;margin:16px;overflow:hidden;"
+             @onclick:stopPropagation>
+            <div style="background:#f8f9fb;border-bottom:1px solid #e5e7eb;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-weight:700;font-size:1rem;"><i class="bi bi-shield-lock me-2"></i>Setup Two-Factor Authentication</span>
+                <button style="background:none;border:none;font-size:1.3rem;color:#6b7280;cursor:pointer;line-height:1;" @onclick="CancelTotpSetup">&times;</button>
+            </div>
+            <div style="padding:24px;">
+                @if (_totpQrBase64 == null)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-secondary me-2"></div>
+                        <span class="text-muted">Generating setup code...</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex gap-4 align-items-start">
+                        <div style="flex-shrink:0;">
+                            <img src="data:image/png;base64,@_totpQrBase64"
+                                 alt="QR Code" style="width:160px;height:160px;border:1px solid #e5e7eb;border-radius:8px;display:block;" />
+                        </div>
+                        <div style="flex:1;min-width:0;">
+                            <p style="font-size:.875rem;margin-bottom:8px;">
+                                Scan this QR code with <strong>Google Authenticator</strong>, <strong>Authy</strong>, or any TOTP app.
+                            </p>
+                            <p style="font-size:.78rem;color:#6b7280;margin-bottom:4px;">Or enter the key manually:</p>
+                            <code style="font-size:.82rem;letter-spacing:.1rem;word-break:break-all;display:block;background:#f3f4f6;padding:6px 8px;border-radius:6px;margin-bottom:16px;">@_totpManualKey</code>
+                            <label style="font-size:.82rem;font-weight:600;display:block;margin-bottom:6px;">6-digit code from your app</label>
+                            <div class="d-flex gap-2 align-items-center flex-wrap">
+                                <input type="text" inputmode="numeric" maxlength="6"
+                                       style="width:130px;letter-spacing:.35rem;font-size:1.15rem;text-align:center;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-weight:600;"
+                                       @bind="_totpConfirmCode" @bind:event="oninput" placeholder="000000" />
+                                <button class="rz-btn rz-btn-primary" @onclick="ConfirmTotp">
+                                    <i class="bi bi-check2-shield"></i> Confirm & Enable
+                                </button>
+                            </div>
+                            @if (_totpSetupError != null)
+                            {
+                                <div class="alert alert-danger mt-3 py-2 mb-0" style="font-size:.84rem;">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>@_totpSetupError
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_resetUserId.HasValue)
+{
+    <div class="rz-card">
+        <div class="rz-card-header">
+            <i class="bi bi-key"></i> Reset Password for <strong class="ms-1">@_resetUsername</strong>
+        </div>
+        <div class="rz-card-body">
+            <div class="row g-3 align-items-end" style="max-width:500px;">
+                <div class="col-sm-6">
+                    <label class="form-label" style="font-size:.82rem;font-weight:600;">New Password</label>
+                    <input class="form-control form-control-sm" type="password" @bind="_resetPassword"
+                           placeholder="Min 12 characters" />
+                </div>
+                <div class="col-sm-6">
+                    <button class="rz-btn rz-btn-primary" @onclick="DoResetPassword">
+                        <i class="bi bi-check2"></i> Apply
+                    </button>
+                    <button class="rz-btn rz-btn-ghost ms-2" @onclick="CancelReset">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+            @if (_resetError != null)
+            {
+                <div class="alert alert-danger mt-2 py-2" style="font-size:.875rem;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>@_resetError
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<AdminUser>? _users;
+    private Guid?   _currentUserId;
+    private string _newUsername  = string.Empty;
+    private string _newPassword  = string.Empty;
+    private string _newRole      = "Operator";
+    private string? _createError;
+    private string? _createSuccess;
+
+    private Guid?   _resetUserId;
+    private string  _resetUsername  = string.Empty;
+    private string  _resetPassword  = string.Empty;
+    private string? _resetError;
+
+    private Guid?   _totpSetupUserId;
+    private string  _totpSetupUsername = string.Empty;
+    private string? _totpQrBase64;
+    private string  _totpManualKey     = string.Empty;
+    private string  _totpConfirmCode   = string.Empty;
+    private string? _totpSetupError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await AdminAuth.ListAsync();
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var idStr = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (Guid.TryParse(idStr, out var id))
+            _currentUserId = id;
+    }
+
+    private async Task CreateUser()
+    {
+        _createError = _createSuccess = null;
+        if (string.IsNullOrWhiteSpace(_newUsername))
+        {
+            _createError = "Username is required.";
+            return;
+        }
+        var (valid, policyError) = IAdminAuthService.ValidatePasswordPolicy(_newPassword);
+        if (!valid)
+        {
+            _createError = policyError;
+            return;
+        }
+        try
+        {
+            await AdminAuth.CreateAsync(_newUsername.Trim(), _newPassword, mustChangePassword: true, requiresMfa: true, role: _newRole);
+            _createSuccess = $"User '{_newUsername.Trim()}' created ({_newRole}). They must change their password and set up MFA on first login.";
+            _newUsername = string.Empty;
+            _newPassword = string.Empty;
+            _newRole = "Operator";
+            _users = await AdminAuth.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            _createError = ex.Message;
+        }
+    }
+
+    private async Task SetActive(Guid id, bool active)
+    {
+        await AdminAuth.SetActiveAsync(id, active);
+        _users = await AdminAuth.ListAsync();
+    }
+
+    private async Task ToggleRequiresMfa(Guid id, bool currentValue)
+    {
+        await AdminAuth.SetRequiresMfaAsync(id, !currentValue);
+        _users = await AdminAuth.ListAsync();
+    }
+
+    private void StartResetPassword(Guid id, string username)
+    {
+        _resetUserId   = id;
+        _resetUsername = username;
+        _resetPassword = string.Empty;
+        _resetError    = null;
+    }
+
+    private void CancelReset()
+    {
+        _resetUserId = null;
+        _resetError  = null;
+    }
+
+    private async Task DoResetPassword()
+    {
+        _resetError = null;
+        var (resetValid, resetPolicyError) = IAdminAuthService.ValidatePasswordPolicy(_resetPassword);
+        if (!resetValid)
+        {
+            _resetError = resetPolicyError;
+            return;
+        }
+        try
+        {
+            await AdminAuth.ChangePasswordAsync(_resetUserId!.Value, _resetPassword);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _resetError = ex.Message;
+            return;
+        }
+        _resetUserId = null;
+        _users = await AdminAuth.ListAsync();
+    }
+
+    private async Task StartTotpSetup(Guid id, string username)
+    {
+        _totpSetupUserId   = id;
+        _totpSetupUsername = username;
+        _totpQrBase64      = null;
+        _totpManualKey     = string.Empty;
+        _totpConfirmCode   = string.Empty;
+        _totpSetupError    = null;
+
+        var info = await AdminAuth.GenerateTotpSetupAsync(id, username);
+
+        // Format manual key in groups of 4 for readability
+        _totpManualKey = string.Join(" ", Enumerable.Range(0, (info.Base32Secret.Length + 3) / 4)
+            .Select(i => info.Base32Secret.Substring(i * 4, Math.Min(4, info.Base32Secret.Length - i * 4))));
+
+        // Generate QR code PNG as base64
+        using var qrGenerator = new QRCodeGenerator();
+        var qrData   = qrGenerator.CreateQrCode(info.OtpAuthUri, QRCodeGenerator.ECCLevel.M);
+        using var qrCode     = new PngByteQRCode(qrData);
+        var pngBytes = qrCode.GetGraphic(6);
+        _totpQrBase64 = Convert.ToBase64String(pngBytes);
+    }
+
+    private async Task ConfirmTotp()
+    {
+        _totpSetupError = null;
+        var code = _totpConfirmCode.Trim().Replace(" ", "");
+        if (code.Length != 6 || !code.All(char.IsDigit))
+        {
+            _totpSetupError = "Please enter a valid 6-digit code.";
+            return;
+        }
+        var ok = await AdminAuth.ConfirmTotpAsync(_totpSetupUserId!.Value, code);
+        if (!ok)
+        {
+            _totpSetupError = "Code is invalid or expired. Check your authenticator app and try again.";
+            return;
+        }
+        _totpSetupUserId = null;
+        _users = await AdminAuth.ListAsync();
+    }
+
+    private void CancelTotpSetup()
+    {
+        _totpSetupUserId = null;
+        _totpSetupError  = null;
+    }
+
+    private async Task RemoveTotp(Guid id)
+    {
+        await AdminAuth.DisableTotpAsync(id);
+        _users = await AdminAuth.ListAsync();
+    }
+}

@@ -1,0 +1,17 @@
+<div class="alert mb-4 d-flex align-items-start gap-2" role="alert"
+     style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;">
+    <i class="bi bi-lock-fill fs-5 mt-1" style="color:#3b82f6"></i>
+    <div>
+        <strong>@Title</strong>
+        <p class="mb-0 mt-1" style="font-size:.875rem;color:#1e3a5f">
+            @ChildContent
+            This feature is not available in the current build configuration.
+        </p>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Feature Locked";
+    [Parameter] public string RequiredTier { get; set; } = "Business";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

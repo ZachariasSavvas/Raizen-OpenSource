@@ -1,0 +1,267 @@
+@page "/syslog"
+@attribute [Authorize(Policy = "Admin")]
+@inject ISyslogSender SyslogSvc
+@inject ILicenseService LicenseSvc
+@inject IAuditService Audit
+@inject AuthenticationStateProvider Auth
+@using Raizen.Server.Core.Licensing
+
+<PageTitle>Syslog / SIEM | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Syslog / SIEM Forwarding</h1>
+<p class="rz-page-subtitle">Forward audit events to your SIEM collector in real time via syslog (UDP or TCP).</p>
+
+@if (!LicenseSvc.HasFeature(LicenseFeature.SyslogForwarding))
+{
+    <UpgradeBanner Title="Syslog / SIEM Forwarding">
+        Forward audit events to your SIEM in CEF or RFC 5424 format. Available on Business tier and above.
+    </UpgradeBanner>
+}
+else if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else
+{
+    <!-- ── Master switch ─────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-broadcast-pin"></i> Syslog Forwarding</div>
+        <div class="rz-card-body">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="enabledSwitch"
+                       @bind="_opts.Enabled" style="width:2.4em;height:1.25em;cursor:pointer" />
+                <label class="form-check-label ms-2 fw-semibold" for="enabledSwitch">
+                    @(_opts.Enabled ? "Forwarding enabled" : "Forwarding disabled")
+                </label>
+            </div>
+            <p class="text-muted mt-2 mb-0" style="font-size:.82rem">
+                When enabled, every audit event is sent to the configured syslog server in addition to the database.
+            </p>
+        </div>
+    </div>
+
+    <!-- ── Destination ───────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-hdd-network"></i> Destination</div>
+        <div class="rz-card-body">
+            <div class="row g-3" style="max-width:700px">
+                <div class="col-sm-6">
+                    <label class="form-label rz-field-label">Syslog Host</label>
+                    <input class="form-control form-control-sm" @bind="_opts.Host"
+                           placeholder="192.168.1.50" />
+                    <div class="form-text" style="font-size:.75rem">IP address or hostname of your SIEM collector</div>
+                </div>
+                <div class="col-sm-3">
+                    <label class="form-label rz-field-label">Port</label>
+                    <input class="form-control form-control-sm" type="number"
+                           @bind="_opts.Port" min="1" max="65535" />
+                </div>
+                <div class="col-sm-3">
+                    <label class="form-label rz-field-label">Protocol</label>
+                    <select class="form-select form-select-sm" @bind="_opts.Protocol">
+                        <option value="Udp">UDP</option>
+                        <option value="Tcp">TCP</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Format ────────────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-file-earmark-code"></i> Message Format</div>
+        <div class="rz-card-body">
+            <div class="row g-3" style="max-width:700px">
+                <div class="col-sm-4">
+                    <label class="form-label rz-field-label">Format</label>
+                    <select class="form-select form-select-sm" @bind="_opts.Format">
+                        <option value="CEF">CEF (ArcSight, Splunk)</option>
+                        <option value="RFC5424">RFC 5424</option>
+                    </select>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label rz-field-label">Facility</label>
+                    <select class="form-select form-select-sm" @bind="_opts.Facility">
+                        <option value="13">13 - log_audit (recommended)</option>
+                        <option value="16">16 - local0</option>
+                        <option value="17">17 - local1</option>
+                        <option value="18">18 - local2</option>
+                        <option value="19">19 - local3</option>
+                        <option value="20">20 - local4</option>
+                        <option value="21">21 - local5</option>
+                        <option value="22">22 - local6</option>
+                        <option value="23">23 - local7</option>
+                    </select>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label rz-field-label">App Name</label>
+                    <input class="form-control form-control-sm" @bind="_opts.AppName"
+                           placeholder="Raizen" />
+                    <div class="form-text" style="font-size:.75rem">Appears in RFC 5424 APP-NAME field</div>
+                </div>
+            </div>
+
+            <!-- ── Format preview ────────────────────────────────────────── -->
+            <div class="mt-3">
+                <label class="form-label rz-field-label">Message Preview</label>
+                <pre class="px-3 py-2 rounded mb-0" style="background:#f3f4f6;font-size:.78rem;white-space:pre-wrap;word-break:break-all;max-width:700px">@GetPreview()</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Actions ───────────────────────────────────────────────────────── -->
+    <div class="d-flex gap-3 align-items-center flex-wrap">
+        <button class="rz-btn rz-btn-primary" @onclick="Save" disabled="@_busy">
+            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check2"></i> Save Settings
+        </button>
+        <button class="rz-btn rz-btn-ghost" @onclick="SendTest" disabled="@(_busy || _testing)">
+            @if (_testing) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-send"></i> Send Test Event
+        </button>
+
+        @if (_saveSuccess)
+        {
+            <span class="text-success fw-semibold" style="font-size:.875rem">
+                <i class="bi bi-check-circle me-1"></i>Settings saved.
+            </span>
+        }
+        @if (_saveError != null)
+        {
+            <span class="text-danger fw-semibold" style="font-size:.875rem">
+                <i class="bi bi-exclamation-triangle me-1"></i>@_saveError
+            </span>
+        }
+        @if (_testResult != null)
+        {
+            <span class="@(_testOk ? "text-success" : "text-danger") fw-semibold" style="font-size:.875rem">
+                <i class="bi @(_testOk ? "bi-check-circle" : "bi-x-circle") me-1"></i>@_testResult
+            </span>
+        }
+    </div>
+
+    <!-- ── Help ──────────────────────────────────────────────────────────── -->
+    <div class="rz-card mt-4">
+        <div class="rz-card-header"><i class="bi bi-info-circle"></i> Integration Guide</div>
+        <div class="rz-card-body">
+            <p class="text-muted mb-2" style="font-size:.85rem">
+                Raizen forwards every audit event (logins, request submissions, approvals, denials, action executions)
+                to your syslog server. Events are always stored in the local database regardless of syslog availability.
+            </p>
+            <table class="table table-sm mb-0" style="max-width:600px;font-size:.82rem">
+                <thead><tr><th>SIEM</th><th>Recommended Format</th><th>Notes</th></tr></thead>
+                <tbody>
+                    <tr><td>Splunk</td><td>CEF</td><td>Use <code>UDP/514</code> or HEC</td></tr>
+                    <tr><td>QRadar</td><td>CEF</td><td>Auto-detected via CEF header</td></tr>
+                    <tr><td>Graylog</td><td>RFC 5424</td><td>Configure a Syslog UDP/TCP input</td></tr>
+                    <tr><td>Wazuh</td><td>CEF</td><td>Use <code>local0</code> facility</td></tr>
+                    <tr><td>ELK / Elastic</td><td>RFC 5424</td><td>Filebeat syslog input or Logstash</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private SyslogOptions _opts = new();
+    private bool _loading = true;
+    private bool _busy;
+    private bool _testing;
+    private bool _saveSuccess;
+    private string? _saveError;
+    private string? _testResult;
+    private bool _testOk;
+    private string _actorUpn = "admin";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _actorUpn = state.User.Identity?.Name ?? "admin";
+
+        var current = SyslogSvc.GetOptions();
+        _opts = new SyslogOptions
+        {
+            Enabled  = current.Enabled,
+            Host     = current.Host,
+            Port     = current.Port,
+            Protocol = current.Protocol,
+            Format   = current.Format,
+            Facility = current.Facility,
+            AppName  = current.AppName,
+        };
+        _loading = false;
+    }
+
+    private async Task Save()
+    {
+        _saveSuccess = false;
+        _saveError = null;
+        _testResult = null;
+        _busy = true;
+
+        try
+        {
+            await SyslogSvc.SaveOptionsAsync(_opts);
+            await Audit.LogAsync("syslog.settings_updated", _actorUpn,
+                detail: $"Enabled={_opts.Enabled}, Host={_opts.Host}:{_opts.Port}, Protocol={_opts.Protocol}, Format={_opts.Format}");
+            _saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SendTest()
+    {
+        _testResult = null;
+        _saveSuccess = false;
+        _saveError = null;
+        _testing = true;
+
+        if (string.IsNullOrWhiteSpace(_opts.Host))
+        {
+            _testOk = false;
+            _testResult = "Enter a syslog host first.";
+            _testing = false;
+            return;
+        }
+
+        // Save first so the test uses current form values
+        await SyslogSvc.SaveOptionsAsync(_opts);
+
+        var error = await SyslogSvc.TestAsync(_opts);
+        _testOk = error is null;
+        _testResult = error is null
+            ? $"Test event sent to {_opts.Host}:{_opts.Port} ({_opts.Protocol})."
+            : $"Failed: {error}";
+        _testing = false;
+    }
+
+    private string GetPreview()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var facility = _opts.Facility;
+        var severity = 6; // Informational
+        var priority = facility * 8 + severity;
+        var host = Environment.MachineName;
+
+        if (_opts.Format == "RFC5424")
+        {
+            var ts = now.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+            var app = string.IsNullOrWhiteSpace(_opts.AppName) ? "Raizen" : _opts.AppName;
+            return $"<{priority}>1 {ts} {host} {app} - - - event=request.approved actor=admin@corp.com machine=WORKSTATION-01";
+        }
+        else
+        {
+            var ts = now.ToString("MMM dd HH:mm:ss");
+            return $"<{priority}>{ts} {host} CEF:0|Raizen|RaizenServer|1.0|request.approved|request.approved|{severity}|act=request.approved suser=admin@corp.com dhost=WORKSTATION-01";
+        }
+    }
+}

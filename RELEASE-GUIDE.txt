@@ -1,0 +1,85 @@
+Raizen - How to Release a New Version
+======================================
+
+PART 1 - CODE & BUILD
+----------------------
+
+1. Make your code changes.
+
+2. Bump the version once in:
+     Directory.Build.props
+   Change: <RaizenVersion>1.5.1</RaizenVersion>  ->  <RaizenVersion>1.5.2</RaizenVersion>
+
+3. Commit and push to GitHub:
+     git add -p
+     git commit -m "release: v1.5.2"
+     git push origin master
+
+4. Build everything (run from repo root in a normal PowerShell -- no elevation needed):
+     .\scripts\Build-WindowsServer.ps1
+   This produces:
+     release\RaizenServer-1.5.2\    -- server package folder
+     release\RaizenServer-1.5.2\RaizenServer-Setup.exe  -- server setup installer
+     publish\installer\RaizenEndpoint.msi  -- endpoint MSI
+
+5. Zip the server package and create versioned installer copies for GitHub assets:
+     Compress-Archive -Path "release\RaizenServer-1.5.2\*" `
+                      -DestinationPath "release\RaizenServer-1.5.2.zip"
+     Copy-Item "release\RaizenServer-1.5.2\RaizenServer-Setup.exe" `
+               "release\RaizenServer-Setup-1.5.2.exe" -Force
+     Copy-Item "publish\installer\RaizenEndpoint.msi" `
+               "release\RaizenEndpoint-1.5.2.msi" -Force
+
+
+PART 2 - UPDATE YOUR SERVER
+-----------------------------
+
+6. Copy the new MSI to the server's packages folder (elevated PowerShell):
+     Copy-Item "publish\installer\RaizenEndpoint.msi" `
+               "C:\Program Files\Raizen\Server\Packages\RaizenEndpoint.msi" -Force
+
+7. Open an elevated PowerShell (right-click -> Run as Administrator) and run:
+     cd C:\Users\user\source\repos\Raizen
+     .\scripts\Update-RaizenServer.ps1 -PackageDir .\release\RaizenServer-1.5.2 -AgentVersion "1.5.2" -Force
+   This stops services, copies new binaries, restores config, bumps CurrentVersion,
+   and restarts everything in one step.
+
+9. Verify the version endpoint is returning the new version:
+     Open the admin portal -> Endpoints page -> check agent versions
+     Or call: GET https://<server>:5001/api/v1/agent/version
+
+
+PART 3 - GITHUB RELEASE
+-------------------------
+
+10. Create the GitHub release and upload the server package plus both installers:
+      cd C:\Users\user\source\repos\Raizen
+     $env:GITHUB_TOKEN = "<your GitHub token>"
+     .\scripts\Create-GitHubRelease.ps1 `
+          -Token $env:GITHUB_TOKEN `
+          -Version "1.5.2"
+    This uploads:
+      RaizenServer-1.5.2.zip
+      RaizenServer-Setup-1.5.2.exe
+      RaizenEndpoint-1.5.2.msi
+    NOTE: update the release notes in Create-GitHubRelease.ps1 before running this
+          so they describe what actually changed in the new version.
+
+
+PART 4 - AGENT ROLLOUT
+------------------------
+
+Agents self-update automatically within 4 hours once steps 7 and 8 are done.
+To push the update immediately: Admin portal -> Endpoints -> Push Update.
+To update manually: run RaizenEndpoint-1.5.2.msi on the workstation as Administrator.
+
+
+QUICK CHECKLIST
+----------------
+[ ] Version bumped in Directory.Build.props
+[ ] Code committed and pushed
+[ ] Build-WindowsServer.ps1 ran successfully
+[ ] New MSI copied to Packages folder on server
+[ ] Server updated with Update-RaizenServer.ps1 -AgentVersion "x.x.x"
+[ ] GitHub release created with Create-GitHubRelease.ps1
+[ ] At least one agent confirmed updated in the portal

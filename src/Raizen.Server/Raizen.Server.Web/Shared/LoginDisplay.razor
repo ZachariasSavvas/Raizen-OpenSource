@@ -1,0 +1,16 @@
+<AuthorizeView>
+    <Authorized>
+        <div class="rz-user-chip">
+            <div class="rz-avatar">@(context.User.Identity!.Name?.Length > 0 ? context.User.Identity!.Name![0].ToString().ToUpper() : "?")</div>
+            <span class="d-none d-md-inline">@context.User.Identity!.Name</span>
+            <a class="rz-btn rz-btn-ghost rz-btn-sm" href="/auth/logout">
+                <i class="bi bi-box-arrow-right"></i> Sign out
+            </a>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <a class="rz-btn rz-btn-primary rz-btn-sm" href="/Auth/Login">
+            <i class="bi bi-box-arrow-in-right"></i> Sign in
+        </a>
+    </NotAuthorized>
+</AuthorizeView>

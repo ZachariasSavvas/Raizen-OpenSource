@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Raizen Security Endpoint MSI installer.
+  Build:
+    wix build Package.wxs ^
+      -d ServiceBinDir="..\..\..\publish\service" ^
+      -d TrayBinDir="..\..\..\publish\tray" ^
+      -ext WixToolset.Util.wixext ^
+      -ext WixToolset.UI.wixext ^
+      -o "..\..\..\publish\installer\RaizenEndpoint.msi"
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <!-- Version is passed at build time: wix build -d Version=1.0.14
+       Must match the dotnet publish -p:Version value so the UpdateWorker
+       assembly version and the MSI version are in sync. -->
+  <Package Name="Raizen Security Endpoint $(var.Version)"
+           Version="$(var.Version)"
+           Manufacturer="Raizen Security"
+           UpgradeCode="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+           Scope="perMachine"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="Raizen Security brokered JIT elevation agent" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Raizen Endpoint is already installed." />
+
+    <!-- Embed all files into the MSI (no external .cab needed) -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ── Install directories ────────────────────────────────────────── -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="RAIZENINSTALLDIR" Name="Raizen">
+        <Directory Id="SERVICEDIR" Name="Service" />
+        <Directory Id="TRAYDIR"    Name="Tray" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="RAIZENDATADIR" Name="Raizen">
+        <Directory Id="LOGSDIR"    Name="Logs" />
+        <Directory Id="SCRIPTSDIR" Name="ApprovedScripts" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- ── Service EXE ───────────────────────────────────────────────── -->
+    <ComponentGroup Id="ServiceComponents" Directory="SERVICEDIR">
+
+      <Component Id="ServiceExe" Guid="*">
+        <File Source="$(var.ServiceBinDir)\Raizen.Endpoint.Service.exe" KeyPath="yes" />
+
+        <ServiceInstall Id="RaizenEndpointSvc"
+                        Name="RaizenEndpoint"
+                        DisplayName="Raizen Elevation Service"
+                        Description="Brokered JIT elevation agent. Executes approved actions as SYSTEM."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem" />
+
+        <!-- Failure recovery: restart at 5s / 10s / 30s -->
+        <util:ServiceConfig ServiceName="RaizenEndpoint"
+                            FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="5"
+                            ResetPeriodInDays="1" />
+
+        <!-- Start after install; stop/remove on uninstall -->
+        <ServiceControl Id="CtrlRaizenEndpoint"
+                        Name="RaizenEndpoint"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+
+      <Component Id="ServiceAppSettings" Guid="*">
+        <File Source="$(var.ServiceBinDir)\appsettings.json" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ── Tray app (single-file self-contained WinForms publish) ───── -->
+    <ComponentGroup Id="TrayComponents" Directory="TRAYDIR">
+      <Component Id="TrayExe" Guid="*">
+        <!-- Single-file publish: everything (including Raizen.ico) is bundled in the exe. -->
+        <File Id="TrayExeFile" Source="$(var.TrayBinDir)\Raizen.Endpoint.Tray.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── ProgramData directories + ACLs ───────────────────────────── -->
+    <ComponentGroup Id="DataDirComponents">
+
+      <!-- %ProgramData%\Raizen — SYSTEM+Admins full, Users read+execute -->
+      <Component Id="DataDir" Guid="{B2C3D4E5-F6A7-8901-BCDE-F12345678901}" Directory="RAIZENDATADIR">
+        <CreateFolder>
+          <util:PermissionEx User="NT AUTHORITY\SYSTEM"  GenericAll="yes" />
+          <util:PermissionEx User="BUILTIN\Administrators" GenericAll="yes" />
+          <util:PermissionEx User="BUILTIN\Users" GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
+      </Component>
+
+      <!-- Logs dir — inherits parent ACL -->
+      <Component Id="LogsDir" Guid="{C3D4E5F6-A7B8-9012-CDEF-123456789012}" Directory="LOGSDIR">
+        <CreateFolder />
+      </Component>
+
+      <!-- ApprovedScripts — SYSTEM+Admins only (no Users read) -->
+      <Component Id="ScriptsDir" Guid="{D4E5F6A7-B8C9-0123-DEF0-234567890123}" Directory="SCRIPTSDIR">
+        <CreateFolder>
+          <util:PermissionEx User="NT AUTHORITY\SYSTEM"  GenericAll="yes" />
+          <util:PermissionEx User="BUILTIN\Administrators" GenericAll="yes" />
+        </CreateFolder>
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ── Registry: tray autostart (all users) ─────────────────────── -->
+    <ComponentGroup Id="TrayAutostartComponent" Directory="RAIZENINSTALLDIR">
+      <Component Id="TrayAutostart" Guid="{E5F6A7B8-C9D0-1234-EF01-345678901234}">
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+                       Name="RaizenTray"
+                       Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;"
+                       Type="string"
+                       Action="write" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── Registry: context menus ──────────────────────────────────── -->
+    <!--
+      Structure per class:
+        HKCR\<class>\shell\Raizen              MUIVerb=Raizen, Icon=tray.exe,0, SubCommands=''
+        HKCR\<class>\shell\Raizen\shell\<verb>          MUIVerb=<label>
+        HKCR\<class>\shell\Raizen\shell\<verb>\command  (default)=<cmd>
+
+      All commands pass the config path explicitly so the correct
+      raizen-config.json is used regardless of the working directory.
+    -->
+
+    <!-- exefile (.exe): primary user path, RunAsAdmin only -->
+    <ComponentGroup Id="ExefileMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="ExefileMenuComp" Guid="{F6A7B8C9-D0E1-2345-F012-456789012345}">
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+
+      </Component>
+    </ComponentGroup>
+
+    <!-- Msi.Package (.msi): primary user path, RunAsAdmin only -->
+    <ComponentGroup Id="MsiPackageMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="MsiPackageMenuComp" Guid="{A7B8C9D0-E1F2-3456-0123-567890123456}">
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+
+      </Component>
+    </ComponentGroup>
+
+    <!-- Microsoft.Management.Console (.msc): primary user path, RunAsAdmin only -->
+    <ComponentGroup Id="MmcMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="MmcMenuComp" Guid="{B8C9D0E1-F2A3-4567-1234-678901234567}">
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── Windows Firewall rules ────────────────────────────────────── -->
+    <!--
+      The service and tray make outbound HTTPS calls to the Raizen server.
+      These rules ensure they are permitted even on machines with strict
+      outbound firewall policies (e.g. corporate GPO blocking unknown apps).
+    -->
+    <ComponentGroup Id="FirewallComponents" Directory="RAIZENINSTALLDIR">
+      <Component Id="FirewallServiceOut" Guid="{E1F2A3B4-C5D6-7890-1234-567890ABCDEF}">
+        <!-- Registry key path required when component contains only a FirewallException -->
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\RaizenSecurity\Firewall"
+                       Name="ServiceRule"
+                       Value="1"
+                       Type="integer"
+                       KeyPath="yes"
+                       Action="write" />
+        <fw:FirewallException Id="FwServiceOut"
+                              Name="Raizen Elevation Service (outbound)"
+                              Program="[SERVICEDIR]Raizen.Endpoint.Service.exe"
+                              Protocol="tcp"
+                              Scope="any"
+                              Profile="all" />
+      </Component>
+      <Component Id="FirewallTrayOut" Guid="{F2A3B4C5-D6E7-8901-2345-678901BCDEF0}">
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\RaizenSecurity\Firewall"
+                       Name="TrayRule"
+                       Value="1"
+                       Type="integer"
+                       KeyPath="yes"
+                       Action="write" />
+        <fw:FirewallException Id="FwTrayOut"
+                              Name="Raizen Tray Agent (outbound)"
+                              Program="[TRAYDIR]Raizen.Endpoint.Tray.exe"
+                              Protocol="tcp"
+                              Scope="any"
+                              Profile="all" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ── Fix unquoted service binary path ─────────────────────────── -->
+    <!--
+      Windows Installer's InstallServices action sets the service ImagePath to the
+      component key-file path WITHOUT quotes.  If the install path contains spaces
+      (e.g. C:\Program Files\...) an attacker who can write to an earlier path
+      segment could plant a rogue executable (unquoted service path, CWE-428).
+
+      Fix: run reg.exe after InstallServices to write the quoted ImagePath.
+      SetProperty passes the command to WixQuietExec (deferred, runs as SYSTEM).
+    -->
+    <SetProperty Id="QuoteServiceImagePath"
+                 Value="&quot;[SystemFolder]reg.exe&quot; add &quot;HKLM\SYSTEM\CurrentControlSet\Services\RaizenEndpoint&quot; /v ImagePath /t REG_EXPAND_SZ /d &quot;\&quot;[SERVICEDIR]Raizen.Endpoint.Service.exe\&quot;&quot; /f"
+                 Before="QuoteServiceImagePath"
+                 Sequence="execute" />
+    <CustomAction Id="QuoteServiceImagePath"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="QuoteServiceImagePath" After="InstallServices" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+
+    <!-- ── Installer UI ───────────────────────────────────────────────── -->
+    <!-- Shows: Welcome → License Agreement → Installing → Finish -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <!-- ── Feature (installs everything) ────────────────────────────── -->
+    <Feature Id="ProductFeature" Level="1">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="TrayComponents" />
+      <ComponentGroupRef Id="DataDirComponents" />
+      <ComponentGroupRef Id="TrayAutostartComponent" />
+      <ComponentGroupRef Id="ExefileMenu" />
+      <ComponentGroupRef Id="MsiPackageMenu" />
+      <ComponentGroupRef Id="MmcMenu" />
+      <ComponentGroupRef Id="FirewallComponents" />
+    </Feature>
+
+  </Package>
+</Wix>

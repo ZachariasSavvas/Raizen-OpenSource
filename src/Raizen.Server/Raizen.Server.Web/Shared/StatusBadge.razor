@@ -1,0 +1,33 @@
+@using Raizen.Shared.Enums
+
+<span class="rz-badge @CssClass"><i class="bi @IconClass"></i> @Status</span>
+
+@code {
+    [Parameter, EditorRequired] public RequestStatus Status { get; set; }
+
+    private string CssClass => Status switch
+    {
+        RequestStatus.Pending   => "rz-badge-pending",
+        RequestStatus.Approved  => "rz-badge-approved",
+        RequestStatus.Executing => "rz-badge-executing",
+        RequestStatus.Succeeded => "rz-badge-succeeded",
+        RequestStatus.Denied    => "rz-badge-denied",
+        RequestStatus.Failed    => "rz-badge-failed",
+        RequestStatus.Cancelled => "rz-badge-cancelled",
+        RequestStatus.Expired   => "rz-badge-expired",
+        _                       => ""
+    };
+
+    private string IconClass => Status switch
+    {
+        RequestStatus.Pending   => "bi-clock",
+        RequestStatus.Approved  => "bi-check-circle",
+        RequestStatus.Executing => "bi-arrow-repeat",
+        RequestStatus.Succeeded => "bi-check-circle-fill",
+        RequestStatus.Denied    => "bi-x-circle",
+        RequestStatus.Failed    => "bi-exclamation-triangle",
+        RequestStatus.Cancelled => "bi-dash-circle",
+        RequestStatus.Expired   => "bi-hourglass-bottom",
+        _                       => "bi-question"
+    };
+}

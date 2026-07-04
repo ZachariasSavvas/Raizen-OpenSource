@@ -1,0 +1,39 @@
+# Build outputs
+bin/
+obj/
+publish/
+
+# .NET
+*.suo
+*.user
+.vs/
+
+# Secrets
+appsettings.Production.json
+appsettings.Local.json
+.env
+*.pfx
+*.key
+
+# License signing keys (NEVER commit the private key)
+*.pem
+raizen-private*
+raizen.lic
+
+# Logs
+logs/
+*.log
+
+# WiX
+.wix/
+
+# OS
+Thumbs.db
+.DS_Store
+NUL
+
+# Claude Code local memory
+.claude/
+
+# Release output folders
+release/

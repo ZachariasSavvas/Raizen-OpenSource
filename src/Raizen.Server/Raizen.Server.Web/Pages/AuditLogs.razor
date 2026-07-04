@@ -1,0 +1,290 @@
+@page "/audit"
+@attribute [Authorize(Policy = "Operator")]
+@inject RaizenDbContext Db
+@inject IAuditService AuditSvc
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject ILicenseService LicenseSvc
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Raizen.Server.Core.Data
+@using Raizen.Server.Core.Licensing
+@using Raizen.Server.Core.Services
+
+<PageTitle>Audit Log | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Audit Log</h1>
+<p class="rz-page-subtitle">Immutable record of all elevation events.</p>
+
+<div class="rz-filter-bar">
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Event</label>
+        <input class="form-control form-control-sm" style="min-width:140px" placeholder="e.g. request.approved" @bind="_eventFilter" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">User</label>
+        <input class="form-control form-control-sm" style="min-width:160px" placeholder="user@domain" @bind="_userFilter" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">From</label>
+        <input class="form-control form-control-sm" type="date" @bind="_from" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">To</label>
+        <input class="form-control form-control-sm" type="date" @bind="_to" />
+    </div>
+    <div class="ms-auto align-self-end d-flex gap-2">
+        <button class="rz-btn rz-btn-primary" @onclick="Load">
+            <i class="bi bi-search"></i> Search
+        </button>
+        <button class="rz-btn rz-btn-ghost" @onclick="ExportExcel" disabled="@(!_canExport)"
+                title="Export to Excel">
+            <i class="bi bi-file-earmark-excel me-1"></i>
+            Export Excel
+            @if (!_canExport) { <i class="bi bi-lock-fill ms-1" style="font-size:.7rem"></i> }
+        </button>
+        <button class="rz-btn rz-btn-ghost" @onclick="VerifyChain" disabled="@(_verifying || _repairing)"
+                title="Verify the HMAC hash chain to detect tampering">
+            @if (_verifying)
+            {
+                <span class="spinner-border spinner-border-sm me-1"></span>
+            }
+            else
+            {
+                <i class="bi bi-shield-check me-1"></i>
+            }
+            Verify Integrity
+        </button>
+    </div>
+</div>
+
+@if (_chainResult is not null)
+{
+    var chainTotal   = _chainResult.Value.Total;
+    var chainInvalid = _chainResult.Value.Invalid;
+    <div class="alert @(chainInvalid == 0 ? "alert-success" : "alert-danger") py-2 mt-2" style="font-size:.85rem;">
+        @if (chainInvalid == 0)
+        {
+            <i class="bi bi-shield-fill-check me-1"></i>
+            <strong>Audit chain intact.</strong> <text>All @chainTotal entries verified.</text>
+        }
+        else
+        {
+            <i class="bi bi-shield-fill-exclamation me-1"></i>
+            <strong>Chain broken!</strong>
+            <text>@chainInvalid of @chainTotal entries have mismatched hashes.</text>
+            @if (!_confirmRepair && _repairResult is null)
+            {
+                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => _confirmRepair = true">
+                    <i class="bi bi-wrench me-1"></i>Repair Chain
+                </button>
+            }
+        }
+    </div>
+
+    @if (_confirmRepair)
+    {
+        <div class="alert alert-warning py-2 mt-1" style="font-size:.85rem;">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            <strong>Confirm repair:</strong> This will recompute all hashed entries using their stored data and rebuild a valid chain.
+            A <code>chain.repaired</code> audit entry will be appended. This action cannot be undone.
+            <div class="mt-2 d-flex gap-2">
+                <button class="btn btn-sm btn-danger" @onclick="RepairChain" disabled="@_repairing">
+                    @if (_repairing) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Yes, Repair Chain
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _confirmRepair = false" disabled="@_repairing">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_repairResult is not null)
+    {
+        <div class="alert alert-success py-2 mt-1" style="font-size:.85rem;">
+            <i class="bi bi-check-circle-fill me-1"></i>
+            <strong>Chain repaired.</strong> @_repairResult.Value entries recomputed. Run Verify Integrity to confirm.
+        </div>
+    }
+}
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_items.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-journal-text"></i>
+            No audit entries found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="rz-card">
+        <div style="overflow-x:auto">
+            <table id="audit-table" class="rz-table">
+                <thead>
+                    <tr>
+                        <th style="width:155px">Time (UTC)</th>
+                        <th style="width:200px">Event</th>
+                        <th style="width:200px">User</th>
+                        <th style="width:160px">Machine</th>
+                        <th style="width:180px">Approved By</th>
+                        <th>Detail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var e in _items)
+                    {
+                        <tr class="@GetRowClass(e.Event)">
+                            <td style="font-family:monospace;font-size:.8rem" title="@e.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss")">@e.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td title="@e.Event"><code style="font-size:.78rem">@e.Event</code></td>
+                            <td style="font-size:.875rem" title="@(e.RequesterUpn ?? e.ActorUpn)">@(e.RequesterUpn ?? e.ActorUpn)</td>
+                            <td style="font-size:.875rem" title="@e.TargetMachine">@e.TargetMachine</td>
+                            <td style="font-size:.875rem;color:#6b7280" title="@e.ApproverUpn">@e.ApproverUpn</td>
+                            <td style="font-size:.85rem" title="@e.Detail">@e.Detail</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="PrevPage" disabled="@(_page == 1)">
+            <i class="bi bi-chevron-left"></i> Previous
+        </button>
+        <span class="text-muted" style="font-size:.85rem">Page @_page</span>
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="NextPage" disabled="@(!_hasMore)">
+            Next <i class="bi bi-chevron-right"></i>
+        </button>
+    </div>
+}
+
+@code {
+    private List<AuditLogDto> _items = [];
+    private bool _loading;
+    private bool _verifying;
+    private bool _repairing;
+    private bool _confirmRepair;
+    private int? _repairResult;
+    private (int Total, int Invalid)? _chainResult;
+    private bool _hasMore;
+    private bool _canExport;
+    private string _eventFilter = "";
+    private string _userFilter = "";
+    private DateTime? _from;
+    private DateTime? _to;
+    private int _page = 1;
+    private const int PageSize = 100;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canExport = LicenseSvc.HasFeature(LicenseFeature.ExcelExport);
+        await Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && _items.Count > 0)
+            await JS.InvokeVoidAsync("initColResize", "audit-table");
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        var q = Db.AuditLogs.AsQueryable();
+
+        if (!string.IsNullOrEmpty(_eventFilter)) q = q.Where(x => x.Event.Contains(_eventFilter));
+        if (!string.IsNullOrEmpty(_userFilter))
+            q = q.Where(x => x.ActorUpn.Contains(_userFilter) ||
+                              (x.Request != null && x.Request.RequesterUpn.Contains(_userFilter)));
+        if (_from.HasValue) q = q.Where(x => x.OccurredAt >= new DateTimeOffset(_from.Value, TimeSpan.Zero));
+        if (_to.HasValue)   q = q.Where(x => x.OccurredAt <= new DateTimeOffset(_to.Value.AddDays(1), TimeSpan.Zero));
+
+        var data = await q
+            .OrderByDescending(x => x.OccurredAt)
+            .Skip((_page - 1) * PageSize)
+            .Take(PageSize + 1)
+            .Select(x => new AuditLogDto
+            {
+                Id            = x.Id,
+                RequestId     = x.RequestId,
+                Event         = x.Event,
+                ActorUpn      = x.ActorUpn,
+                RequesterUpn  = x.Request != null ? x.Request.RequesterUpn : null,
+                ApproverUpn   = x.Request != null ? x.Request.ReviewerUpn  : null,
+                TargetMachine = x.Request != null ? x.Request.Endpoint.MachineName : x.TargetMachine,
+                Detail        = x.Detail,
+                OccurredAt    = x.OccurredAt,
+                IpAddress     = x.IpAddress,
+            })
+            .ToListAsync();
+
+        _hasMore = data.Count > PageSize;
+        _items = data.Take(PageSize).ToList();
+        _loading = false;
+    }
+
+    private static string GetRowClass(string evt) => evt switch
+    {
+        var e when e.Contains("approved") => "rz-audit-approved",
+        var e when e.Contains("denied")   => "rz-audit-denied",
+        var e when e.Contains("failed")   => "rz-audit-failed",
+        _                                 => ""
+    };
+
+    private async Task PrevPage() { if (_page > 1) { _page--; await Load(); } }
+    private async Task NextPage() { _page++; await Load(); }
+
+    private async Task VerifyChain()
+    {
+        _verifying    = true;
+        _chainResult  = null;
+        _confirmRepair = false;
+        _repairResult  = null;
+        try
+        {
+            _chainResult = await AuditSvc.VerifyChainAsync();
+        }
+        finally
+        {
+            _verifying = false;
+        }
+    }
+
+    private async Task RepairChain()
+    {
+        _repairing = true;
+        try
+        {
+            var state   = await AuthState.GetAuthenticationStateAsync();
+            var actorUpn = state.User.Identity?.Name ?? "admin";
+            _repairResult  = await AuditSvc.RepairChainAsync(actorUpn);
+            _confirmRepair = false;
+            _chainResult   = null; // clear old result so user re-verifies
+        }
+        finally
+        {
+            _repairing = false;
+        }
+    }
+
+    private void ExportExcel()
+    {
+        if (!_canExport) return;
+        var qs = new System.Text.StringBuilder("/export/audit?");
+        if (!string.IsNullOrEmpty(_eventFilter)) qs.Append($"eventFilter={Uri.EscapeDataString(_eventFilter)}&");
+        if (!string.IsNullOrEmpty(_userFilter))  qs.Append($"userFilter={Uri.EscapeDataString(_userFilter)}&");
+        if (_from.HasValue) qs.Append($"from={_from.Value:yyyy-MM-dd}&");
+        if (_to.HasValue)   qs.Append($"to={_to.Value:yyyy-MM-dd}&");
+        Nav.NavigateTo(qs.ToString().TrimEnd('&', '?'), forceLoad: true);
+    }
+}

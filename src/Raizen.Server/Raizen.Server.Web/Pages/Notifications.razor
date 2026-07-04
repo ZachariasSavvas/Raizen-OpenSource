@@ -1,0 +1,294 @@
+@page "/notifications"
+@attribute [Authorize(Policy = "Admin")]
+@inject INotificationService NotifSvc
+@inject AuthenticationStateProvider Auth
+@inject ILicenseService LicenseSvc
+@using Raizen.Server.Core.Licensing
+
+<PageTitle>Notifications | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Notifications</h1>
+<p class="rz-page-subtitle">Configure email alerts for elevation request events.</p>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else
+{
+    <!-- ── Master switch ─────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-envelope"></i> Email Notifications</div>
+        <div class="rz-card-body">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="enabledSwitch"
+                       @bind="_s.Enabled" style="width:2.4em;height:1.25em;cursor:pointer" />
+                <label class="form-check-label ms-2 fw-semibold" for="enabledSwitch">
+                    @(_s.Enabled ? "Notifications enabled" : "Notifications disabled")
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── SMTP ──────────────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-server"></i> SMTP Server</div>
+        <div class="rz-card-body">
+            <div class="row g-3" style="max-width:800px">
+                <div class="col-sm-7">
+                    <label class="form-label rz-field-label">SMTP Host</label>
+                    <input class="form-control form-control-sm" @bind="_s.SmtpHost"
+                           placeholder="smtp.office365.com" />
+                </div>
+                <div class="col-sm-2">
+                    <label class="form-label rz-field-label">Port</label>
+                    <input class="form-control form-control-sm" type="number"
+                           @bind="_s.SmtpPort" min="1" max="65535" />
+                </div>
+                <div class="col-sm-3 d-flex align-items-end pb-1">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="tlsCheck" @bind="_s.SmtpUseTls" />
+                        <label class="form-check-label" for="tlsCheck">Use STARTTLS</label>
+                    </div>
+                </div>
+                <div class="col-sm-5">
+                    <label class="form-label rz-field-label">Username</label>
+                    <input class="form-control form-control-sm" @bind="_s.SmtpUsername"
+                           placeholder="alerts@yourdomain.com" autocomplete="off" />
+                </div>
+                <div class="col-sm-5">
+                    <label class="form-label rz-field-label">
+                        App Password
+                        @if (_passwordSaved)
+                        {
+                            <span class="text-muted fw-normal ms-1" style="font-size:.75rem">(saved, leave blank to keep)</span>
+                        }
+                    </label>
+                    <input class="form-control form-control-sm" type="password" @bind="_password"
+                           placeholder="@(_passwordSaved ? "••••••••••••" : "Enter app password")"
+                           autocomplete="new-password" />
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label rz-field-label">From Address</label>
+                    <input class="form-control form-control-sm" @bind="_s.FromAddress"
+                           placeholder="raizen-alerts@yourdomain.com" />
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label rz-field-label">From Display Name</label>
+                    <input class="form-control form-control-sm" @bind="_s.FromDisplayName"
+                           placeholder="Raizen" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Recipients ────────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-people"></i> Recipients</div>
+        <div class="rz-card-body">
+            <p class="text-muted mb-3" style="font-size:.85rem">
+                All notification emails are sent to every address in this list.
+            </p>
+
+            @if (_recipients.Count > 0)
+            {
+                <div class="mb-3" style="max-width:480px">
+                    @foreach (var addr in _recipients.ToList())
+                    {
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="form-control form-control-sm" style="background:#f9fafb;color:#374151">
+                                <i class="bi bi-envelope me-1 text-muted"></i>@addr
+                            </span>
+                            <button class="rz-btn rz-btn-ghost rz-btn-sm text-danger"
+                                    @onclick="() => RemoveRecipient(addr)" title="Remove">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-muted mb-3" style="font-size:.85rem"><i class="bi bi-info-circle me-1"></i>No recipients added yet.</p>
+            }
+
+            <div class="d-flex gap-2 align-items-end" style="max-width:480px">
+                <div class="flex-grow-1">
+                    <label class="form-label rz-field-label">Add Email Address</label>
+                    <input class="form-control form-control-sm" @bind="_newRecipient"
+                           @onkeydown="@(e => { if (e.Key == "Enter") AddRecipient(); })"
+                           placeholder="approver@yourdomain.com" type="email" />
+                </div>
+                <button class="rz-btn rz-btn-primary rz-btn-sm" @onclick="AddRecipient">
+                    <i class="bi bi-plus-lg"></i> Add
+                </button>
+            </div>
+            @if (_recipientError != null)
+            {
+                <p class="text-danger mt-1 mb-0" style="font-size:.82rem">@_recipientError</p>
+            }
+        </div>
+    </div>
+
+    <!-- ── Event toggles ─────────────────────────────────────────────────── -->
+    <div class="rz-card mb-3">
+        <div class="rz-card-header"><i class="bi bi-bell"></i> Events</div>
+        <div class="rz-card-body">
+            <p class="text-muted mb-3" style="font-size:.85rem">Choose which events trigger an email.</p>
+            <div class="d-flex flex-column gap-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="chkSubmit" @bind="_s.NotifyOnSubmit" />
+                    <label class="form-check-label" for="chkSubmit">
+                        <strong>Request submitted</strong>
+                        <span class="text-muted ms-1" style="font-size:.82rem">Sent to recipients when a user submits a new request</span>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="chkApproved" @bind="_s.NotifyOnApproved" />
+                    <label class="form-check-label" for="chkApproved">
+                        <strong>Request approved</strong>
+                        <span class="text-muted ms-1" style="font-size:.82rem">Sent when an approver grants the request</span>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="chkDenied" @bind="_s.NotifyOnDenied" />
+                    <label class="form-check-label" for="chkDenied">
+                        <strong>Request denied</strong>
+                        <span class="text-muted ms-1" style="font-size:.82rem">Sent when an approver rejects the request</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Actions ───────────────────────────────────────────────────────── -->
+    <div class="d-flex gap-3 align-items-center flex-wrap">
+        <button class="rz-btn rz-btn-primary" @onclick="Save" disabled="@_busy">
+            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-check2"></i> Save Settings
+        </button>
+        <button class="rz-btn rz-btn-ghost" @onclick="SendTest" disabled="@(_busy || _testing)">
+            @if (_testing) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            <i class="bi bi-send"></i> Send Test Email
+        </button>
+
+        @if (_saveSuccess)
+        {
+            <span class="text-success fw-semibold" style="font-size:.875rem">
+                <i class="bi bi-check-circle me-1"></i>Settings saved.
+            </span>
+        }
+        @if (_saveError != null)
+        {
+            <span class="text-danger fw-semibold" style="font-size:.875rem">
+                <i class="bi bi-exclamation-triangle me-1"></i>@_saveError
+            </span>
+        }
+        @if (_testResult != null)
+        {
+            <span class="@(_testOk ? "text-success" : "text-danger") fw-semibold" style="font-size:.875rem">
+                <i class="bi @(_testOk ? "bi-check-circle" : "bi-x-circle") me-1"></i>@_testResult
+            </span>
+        }
+    </div>
+}
+
+
+@code {
+    private Raizen.Server.Core.Models.NotificationSettings _s = new();
+    private List<string> _recipients = [];
+    private string _newRecipient = string.Empty;
+    private string? _recipientError;
+    private string _password = string.Empty;
+    private bool _passwordSaved;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _testing;
+    private bool _saveSuccess;
+    private string? _saveError;
+    private string? _testResult;
+    private bool _testOk;
+    private string _actorUpn = "admin";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _actorUpn = state.User.Identity?.Name ?? "admin";
+        _s = await NotifSvc.GetAsync();
+        _recipients = DeserializeRecipients(_s.RecipientsJson);
+        _passwordSaved = !string.IsNullOrEmpty(_s.SmtpPassword);
+        _loading = false;
+    }
+
+    private void AddRecipient()
+    {
+        _recipientError = null;
+        var addr = _newRecipient.Trim();
+        if (string.IsNullOrEmpty(addr)) return;
+        if (!addr.Contains('@')) { _recipientError = "Enter a valid email address."; return; }
+        if (_recipients.Contains(addr, StringComparer.OrdinalIgnoreCase)) { _recipientError = "Address already in list."; return; }
+        _recipients.Add(addr);
+        _newRecipient = string.Empty;
+    }
+
+    private void RemoveRecipient(string addr) => _recipients.Remove(addr);
+
+    private async Task Save()
+    {
+        _saveSuccess = false;
+        _saveError = null;
+        _testResult = null;
+        _busy = true;
+
+        _s.RecipientsJson = System.Text.Json.JsonSerializer.Serialize(_recipients);
+        if (!string.IsNullOrEmpty(_password))
+            _s.SmtpPassword = _password;
+
+        try
+        {
+            await NotifSvc.SaveAsync(_s, _actorUpn);
+            _saveSuccess = true;
+            _passwordSaved = !string.IsNullOrEmpty(_s.SmtpPassword);
+            _password = string.Empty;
+            // Reload to get UpdatedAt etc.
+            _s = await NotifSvc.GetAsync();
+            _recipients = DeserializeRecipients(_s.RecipientsJson);
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SendTest()
+    {
+        _testResult = null;
+        _saveSuccess = false;
+        _saveError = null;
+        _testing = true;
+
+        // Save first so the test uses current form values
+        _s.RecipientsJson = System.Text.Json.JsonSerializer.Serialize(_recipients);
+        if (!string.IsNullOrEmpty(_password))
+            _s.SmtpPassword = _password;
+        await NotifSvc.SaveAsync(_s, _actorUpn);
+
+        var error = await NotifSvc.TestAsync();
+        _testOk = error is null;
+        _testResult = error is null ? "Test email sent successfully." : $"Failed: {error}";
+        _testing = false;
+    }
+
+    private static List<string> DeserializeRecipients(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch { return []; }
+    }
+}

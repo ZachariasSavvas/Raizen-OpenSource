@@ -1,0 +1,256 @@
+@page "/actions"
+@attribute [Authorize(Policy = "Admin")]
+@inject IActionCatalogService Catalog
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+@inject ILicenseService LicenseSvc
+@using Raizen.Server.Core.Licensing
+
+<PageTitle>Action Catalog | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Action Catalog</h1>
+<p class="rz-page-subtitle">
+    Define permitted atomic elevation actions. Each type maps to a dedicated handler, no shell invocation.
+</p>
+
+<div class="mb-3">
+    <button class="rz-btn rz-btn-primary" @onclick="() => { _editing = new(); _editingId = null; _showForm = true; }">
+        <i class="bi bi-plus-circle"></i> New Action
+    </button>
+</div>
+
+@if (_showForm)
+{
+    <div class="rz-card mb-4">
+        <div class="rz-card-header">
+            <i class="bi bi-@(_editingId is null ? "plus-circle" : "pencil")"></i>
+            @(_editingId is null ? "New Action" : "Edit Action")
+        </div>
+        <div class="rz-card-body">
+            <EditForm Model="_editing" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-danger py-2">@_formError</div>
+                }
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" style="font-size:.875rem">Display Name</label>
+                        <InputText class="form-control" @bind-Value="_editing.DisplayName" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" style="font-size:.875rem">Action Type</label>
+                        <InputSelect class="form-select" @bind-Value="_editing.ActionType">
+                            @foreach (var t in Enum.GetValues<ActionType>())
+                            {
+                                <option value="@t">@t</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" style="font-size:.875rem">Description</label>
+                        <InputTextArea class="form-control" @bind-Value="_editing.Description" rows="2" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" style="font-size:.875rem">Approval Window (minutes)</label>
+                        <InputNumber class="form-control" @bind-Value="_editing.ApprovalWindowMinutes" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" style="font-size:.875rem">
+                            Min. Approvers
+                            <span class="text-muted" style="font-size:.78rem;font-weight:400"> (1 = standard, 2 = four-eyes)</span>
+                        </label>
+                        <InputNumber class="form-control" @bind-Value="_editing.MinApprovers" min="1" max="10"
+                                     disabled="@(!_canMultiApprove)" />
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center gap-3 pt-3">
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" @bind-Value="_editing.AutoApprove" id="auto" />
+                            <label class="form-check-label" for="auto" style="font-size:.875rem">Auto-approve</label>
+                        </div>
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" @bind-Value="_editing.IsEnabled" id="enabled" />
+                            <label class="form-check-label" for="enabled" style="font-size:.875rem">Enabled</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button type="submit" class="rz-btn rz-btn-success">
+                        <i class="bi bi-check-circle"></i> Save
+                    </button>
+                    <button type="button" class="rz-btn rz-btn-ghost" @onclick="() => _showForm = false">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@if (_actions is null)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_actions.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-collection"></i>
+            No actions defined yet. Create your first action above.
+        </div>
+    </div>
+}
+else
+{
+    <div class="rz-card">
+        <table class="rz-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Window</th>
+                    <th>Auto-approve</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in _actions)
+                {
+                    <tr>
+                        <td><strong>@a.DisplayName</strong></td>
+                        <td><code style="font-size:.8rem">@a.ActionType</code></td>
+                        <td>@a.ApprovalWindowMinutes min</td>
+                        <td>
+                            @if (a.AutoApprove)
+                            {
+                                <span class="rz-badge rz-badge-approved"><i class="bi bi-lightning-fill"></i> Auto</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted" style="font-size:.85rem">Manual</span>
+                            }
+                        </td>
+                        <td>
+                            @if (a.IsEnabled)
+                            {
+                                <span class="rz-badge rz-badge-succeeded"><i class="bi bi-check-circle-fill"></i> Enabled</span>
+                            }
+                            else
+                            {
+                                <span class="rz-badge rz-badge-cancelled"><i class="bi bi-dash-circle"></i> Disabled</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => Edit(a)">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="rz-btn rz-btn-sm @(a.IsEnabled ? "rz-btn-warning" : "rz-btn-success")"
+                                        @onclick="() => Toggle(a)">
+                                    <i class="bi bi-@(a.IsEnabled ? "pause-circle" : "play-circle")"></i>
+                                    @(a.IsEnabled ? "Disable" : "Enable")
+                                </button>
+                                @if (!a.IsEnabled)
+                                {
+                                    <button class="rz-btn rz-btn-danger rz-btn-sm" @onclick="() => Delete(a)"
+                                            title="Permanently delete this disabled action">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                }
+                            </div>
+                            @if (_deleteError?.Key == a.Id)
+                            {
+                                <div class="text-danger mt-1" style="font-size:.78rem">@_deleteError.Value.Value</div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool _canMultiApprove;
+    private List<ActionDefinitionDto>? _actions;
+    private bool _showForm;
+    private UpsertActionDefinitionDto? _editing;
+    private Guid? _editingId;
+    private string? _formError;
+    private KeyValuePair<Guid, string>? _deleteError;
+    private string _actorUpn = "admin";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canMultiApprove = LicenseSvc.HasFeature(LicenseFeature.MultiApprover);
+        var state = await AuthState.GetAuthenticationStateAsync();
+        _actorUpn = state.User.Identity?.Name ?? "admin";
+        await Reload();
+    }
+
+    private async Task Reload() => _actions = await Catalog.ListAsync(includeDisabled: true);
+
+    private void Edit(ActionDefinitionDto a)
+    {
+        _editingId = a.Id;
+        _editing = new UpsertActionDefinitionDto
+        {
+            DisplayName = a.DisplayName,
+            Description = a.Description,
+            ActionType = a.ActionType,
+            Parameters = a.Parameters,
+            ApproverGroupIds = a.ApproverGroupIds,
+            AutoApprove = a.AutoApprove,
+            AutoApproveConditionDescription = a.AutoApproveConditionDescription,
+            ApprovalWindowMinutes = a.ApprovalWindowMinutes,
+            MinApprovers = a.MinApprovers,
+            IsEnabled = a.IsEnabled,
+        };
+        _showForm = true;
+    }
+
+    private async Task Save()
+    {
+        _formError = null;
+        try
+        {
+            if (_editingId is null)
+                await Catalog.CreateAsync(_editing!, _actorUpn);
+            else
+                await Catalog.UpdateAsync(_editingId.Value, _editing!, _actorUpn);
+            _showForm = false;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+    }
+
+    private async Task Toggle(ActionDefinitionDto a)
+    {
+        await Catalog.SetEnabledAsync(a.Id, !a.IsEnabled, _actorUpn);
+        await Reload();
+    }
+
+    private async Task Delete(ActionDefinitionDto a)
+    {
+        _deleteError = null;
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm", $"Permanently delete '{a.DisplayName}'? This cannot be undone.");
+        if (!confirmed) return;
+
+        try
+        {
+            await Catalog.DeleteAsync(a.Id, _actorUpn);
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _deleteError = new KeyValuePair<Guid, string>(a.Id, ex.Message);
+        }
+    }
+}

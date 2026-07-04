@@ -1,0 +1,556 @@
+@page "/pending"
+@attribute [Authorize(Policy = "Approver")]
+@implements IDisposable
+@inject IRequestService RequestService
+@inject IEndpointService EndpointService
+@inject IHttpContextAccessor HttpContextAccessor
+@using Raizen.Shared.DTOs
+@using Raizen.Shared.Enums
+@using Raizen.Server.Web.Security
+@using Raizen.Server.Core.Services
+
+<PageTitle>Pending Approvals | Raizen</PageTitle>
+
+<div class="rz-page-header">
+    <div>
+        <h1 class="rz-page-title">Pending Approvals</h1>
+        <p class="rz-page-subtitle">Review endpoint elevation requests before they expire.</p>
+    </div>
+    <div class="rz-page-actions">
+        @if (_items is not null)
+        {
+            <span class="rz-badge @(_items.Count == 0 ? "rz-badge-succeeded" : "rz-badge-pending")">
+                @(_items.Count == 0 ? "All clear" : $"{_items.Count} pending")
+            </span>
+        }
+        <span class="rz-inline-meta"><i class="bi bi-arrow-clockwise"></i> @_refreshCountdown s</span>
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="Reload" disabled="@_loading">
+            <i class="bi bi-arrow-clockwise @(_loading ? "spin" : "")"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<div class="rz-filter-bar">
+    <input class="rz-input" style="min-width:280px" placeholder="Search action, requester, endpoint, ticket" @bind="_search" @bind:event="oninput" />
+    <select class="rz-select" @bind="_riskFilter">
+        <option value="">All risk</option>
+        <option value="Elevated">Elevated</option>
+        <option value="Standard">Standard</option>
+    </select>
+    <select class="rz-select" @bind="_connectivityFilter">
+        <option value="">All endpoints</option>
+        <option value="Online">Online</option>
+        <option value="Offline">Offline</option>
+        <option value="Unknown">Unknown</option>
+    </select>
+</div>
+
+@if (_loading && _items is null)
+{
+    <div class="d-flex align-items-center gap-2 text-muted mt-4">
+        <span class="spinner-border spinner-border-sm"></span> Loading requests
+    </div>
+}
+else if (FilteredItems.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-inbox"></i>
+            No matching pending requests.
+        </div>
+    </div>
+}
+else
+{
+    <div class="rz-approval-layout">
+        <div class="rz-card">
+            <table class="rz-table">
+                <thead>
+                    <tr>
+                        <th style="width:30%">Request</th>
+                        <th style="width:18%">Endpoint</th>
+                        <th style="width:16%">User</th>
+                        <th style="width:11%">Risk</th>
+                        <th style="width:13%">Expires</th>
+                        <th style="width:12%"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in FilteredItems)
+                    {
+                        var selected = SelectedRequest?.Id == r.Id;
+                        var alreadyApproved = r.Approvals.Any(a => a.Approved && a.ApproverUpn == GetReviewerUpn());
+                        <tr class="rz-approval-row @(selected ? "is-selected" : "")" @onclick="() => SelectRequest(r.Id)">
+                            <td>
+                                <strong><i class="bi @ActionIcon(r.ActionType) me-1 text-muted"></i>@r.ActionDisplayName</strong><br />
+                                <span class="rz-inline-meta">@TimeAgo(r.SubmittedAt)</span>
+                            </td>
+                            <td><code>@r.TargetMachine</code></td>
+                            <td>@r.RequesterUpn</td>
+                            <td><span class="rz-badge @(RiskLabel(r) == "Elevated" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span></td>
+                            <td class="@(r.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(15) ? "rz-expiring" : "")">@ExpiryLabel(r.ExpiresAt - DateTimeOffset.UtcNow)</td>
+                            <td>
+                                <div class="d-flex gap-1 justify-content-end" @onclick:stopPropagation>
+                                    @if (!alreadyApproved)
+                                    {
+                                        <button class="rz-btn rz-btn-success rz-btn-sm" title="Approve" @onclick="() => BeginReview(r.Id, approve: true)">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                    }
+                                    <button class="rz-btn rz-btn-warning rz-btn-sm" title="Deny" @onclick="() => BeginReview(r.Id, approve: false)">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <aside class="rz-card rz-detail-panel">
+            @if (SelectedRequest is null)
+            {
+                <div class="rz-empty">
+                    <i class="bi bi-cursor"></i>
+                    Select a request.
+                </div>
+            }
+            else
+            {
+                var r = SelectedRequest;
+                var epStatus = _endpointStatus.GetValueOrDefault(r.EndpointRegistrationId);
+                var approvedCount = r.Approvals.Count(a => a.Approved);
+                var alreadyApproved = r.Approvals.Any(a => a.Approved && a.ApproverUpn == GetReviewerUpn());
+                var isActing = _actingId == r.Id;
+                var isApproving = isActing && _actingApprove;
+
+                <div class="rz-card-header">
+                    <i class="bi @ActionIcon(r.ActionType) text-muted"></i> Request details
+                </div>
+                <div class="rz-card-body">
+                    <div class="rz-detail-section pt-0">
+                        <div class="rz-detail-title-row">
+                            <div class="rz-detail-title-copy">
+                                <div class="rz-detail-value" style="font-weight:650">@r.ActionDisplayName</div>
+                                <div class="rz-inline-meta rz-truncate" title="@r.Id.ToString()">@r.Id</div>
+                            </div>
+                            <span class="rz-badge @(RiskLabel(r) == "Elevated" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span>
+                        </div>
+                    </div>
+
+                    <div class="rz-detail-section">
+                        <div class="rz-detail-label">Requester</div>
+                        <div class="rz-detail-value">@r.RequesterUpn</div>
+                        @if (!string.IsNullOrWhiteSpace(r.RequesterDisplayName))
+                        {
+                            <div class="rz-inline-meta">@r.RequesterDisplayName</div>
+                        }
+                    </div>
+
+                    <div class="rz-detail-section">
+                        <div class="rz-detail-label">Endpoint</div>
+                        <div class="rz-detail-value"><code>@r.TargetMachine</code></div>
+                        <div class="rz-inline-meta">@ConnectivityLabel(epStatus)</div>
+                    </div>
+
+                    <div class="rz-detail-section">
+                        <div class="rz-detail-label">Justification</div>
+                        <div class="rz-detail-value">@r.Justification</div>
+                        @if (!string.IsNullOrWhiteSpace(r.TicketReference))
+                        {
+                            <div class="rz-inline-meta mt-2"><i class="bi bi-ticket-perforated"></i> @r.TicketReference</div>
+                        }
+                    </div>
+
+                    @if (r.Parameters.Count > 0)
+                    {
+                        <div class="rz-detail-section">
+                            <div class="rz-detail-label">Parameters</div>
+                            @foreach (var p in r.Parameters.Where(p => !p.Key.StartsWith("__")).Take(6))
+                            {
+                                <div class="rz-param-row">
+                                    <span class="rz-inline-meta rz-param-key" title="@p.Key">@p.Key</span>
+                                    <code class="rz-param-value" title="@p.Value">@p.Value</code>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="rz-detail-section">
+                        <div class="rz-detail-label">Approval state</div>
+                        <div class="rz-detail-value">@approvedCount / @r.MinApprovers approval@(r.MinApprovers == 1 ? "" : "s")</div>
+                        <div class="rz-inline-meta">Expires @ExpiryLabel(r.ExpiresAt - DateTimeOffset.UtcNow)</div>
+                    </div>
+
+                    @if (!isActing)
+                    {
+                        <div class="d-flex gap-2 pt-3">
+                            @if (!alreadyApproved)
+                            {
+                                <button class="rz-btn rz-btn-success rz-btn-sm" @onclick="() => BeginReview(r.Id, approve: true)">
+                                    <i class="bi bi-check-lg"></i> Approve
+                                </button>
+                            }
+                            <button class="rz-btn rz-btn-warning rz-btn-sm" @onclick="() => BeginReview(r.Id, approve: false)">
+                                <i class="bi bi-x-lg"></i> Deny
+                            </button>
+                            <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests/@r.Id">
+                                Details
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rz-detail-section">
+                            <div class="rz-detail-label">Reviewer note</div>
+                            <textarea class="form-control form-control-sm" rows="3"
+                                      placeholder="Optional note"
+                                      @bind="_reviewNote"></textarea>
+                            <div class="d-flex gap-2 mt-2">
+                                <button class="rz-btn rz-btn-sm @(isApproving ? "rz-btn-success" : "rz-btn-warning")"
+                                        @onclick="() => SubmitReview(r.Id)"
+                                        disabled="@_submitting">
+                                    @if (_submitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    Confirm @(isApproving ? "approval" : "denial")
+                                </button>
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="CancelReview">Cancel</button>
+                            </div>
+                            @if (_reviewError != null)
+                            {
+                                <div class="alert alert-danger mt-2 py-1 mb-0" style="font-size:.82rem;">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>@_reviewError
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </aside>
+    </div>
+}
+
+@if (_lolbasEntry != null)
+{
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1050;display:flex;align-items:center;justify-content:center;"
+         @onclick="CancelLolbas">
+        <div class="rz-card" style="width:100%;max-width:560px;margin:16px;overflow:hidden;"
+             @onclick:stopPropagation>
+            <div class="rz-card-header">
+                <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                LOLBAS warning
+                <button class="rz-btn rz-btn-ghost rz-btn-sm ms-auto" @onclick="CancelLolbas" title="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="rz-card-body">
+                <p class="rz-detail-value">
+                    <code>@_lolbasEntry.Name</code> is a known Windows binary that can be abused beyond its intended purpose.
+                </p>
+
+                <div class="rz-detail-section">
+                    <div class="rz-detail-label">Legitimate use</div>
+                    <div class="rz-detail-value">@_lolbasEntry.Description</div>
+                </div>
+
+                <div class="rz-detail-section">
+                    <div class="rz-detail-label">Known abuse capabilities</div>
+                    <ul class="mb-0">
+                        @foreach (var cap in _lolbasEntry.Capabilities)
+                        {
+                            <li class="rz-detail-value">@cap</li>
+                        }
+                    </ul>
+                </div>
+
+                <div class="rz-detail-section">
+                    <div class="rz-detail-label">MITRE ATT&amp;CK</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        @foreach (var t in _lolbasEntry.MitreAttack)
+                        {
+                            <a class="rz-badge rz-badge-off" href="https://attack.mitre.org/techniques/@t.Replace(".", "/")" target="_blank">
+                                @t
+                            </a>
+                        }
+                    </div>
+                </div>
+
+                <div class="rz-detail-section">
+                    <div class="rz-detail-label">Reviewer note required</div>
+                    <textarea class="form-control form-control-sm" rows="3"
+                              placeholder="Explain why this is legitimate in this context"
+                              @bind="_reviewNote"></textarea>
+                </div>
+
+                @if (_lolbasError != null)
+                {
+                    <div class="alert alert-danger py-2 mb-3" style="font-size:.84rem;">
+                        <i class="bi bi-exclamation-triangle me-1"></i>@_lolbasError
+                    </div>
+                }
+
+                <div class="d-flex gap-2 justify-content-end">
+                    <button class="rz-btn rz-btn-ghost" @onclick="CancelLolbas">Cancel</button>
+                    <button class="rz-btn rz-btn-warning" @onclick="DenyFromLolbas">
+                        <i class="bi bi-x-lg"></i> Deny
+                    </button>
+                    <button class="rz-btn rz-btn-success" @onclick="ApproveFromLolbas" disabled="@_submitting">
+                        @if (_submitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-check-lg"></i> Approve
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .spin { animation: spin .7s linear infinite; display:inline-block; }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+@code {
+    private List<ElevationRequestDto>? _items;
+    private Dictionary<Guid, EndpointRegistrationDto?> _endpointStatus = [];
+    private bool _loading;
+    private Guid? _actingId;
+    private bool _actingApprove;
+    private string _reviewNote = string.Empty;
+    private string? _reviewError;
+    private bool _submitting;
+    private int _refreshCountdown = 30;
+    private System.Threading.Timer? _timer;
+    private string _search = string.Empty;
+    private string _riskFilter = string.Empty;
+    private string _connectivityFilter = string.Empty;
+    private Guid? _selectedId;
+
+    private LolbasEntry? _lolbasEntry;
+    private Guid _lolbasRequestId;
+    private string? _lolbasError;
+
+    private List<ElevationRequestDto> FilteredItems =>
+        (_items ?? [])
+            .Where(MatchesSearch)
+            .Where(r => string.IsNullOrEmpty(_riskFilter) || RiskLabel(r) == _riskFilter)
+            .Where(r => string.IsNullOrEmpty(_connectivityFilter) || ConnectivityLabel(_endpointStatus.GetValueOrDefault(r.EndpointRegistrationId)).StartsWith(_connectivityFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private ElevationRequestDto? SelectedRequest =>
+        FilteredItems.FirstOrDefault(x => x.Id == _selectedId) ?? FilteredItems.FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            _refreshCountdown--;
+            if (_refreshCountdown <= 0)
+            {
+                _refreshCountdown = 30;
+                await InvokeAsync(Reload);
+            }
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    public void Dispose() => _timer?.Dispose();
+
+    private async Task Reload()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var result = await RequestService.ListAsync(RequestStatus.Pending, null, null, 1, 100);
+            _items = result.Items;
+
+            _endpointStatus = [];
+            var uniqueEndpointIds = _items.Select(i => i.EndpointRegistrationId).Distinct();
+            foreach (var epId in uniqueEndpointIds)
+                _endpointStatus[epId] = await EndpointService.GetByIdAsync(epId);
+
+            if (_selectedId is null || !_items.Any(x => x.Id == _selectedId))
+                _selectedId = _items.FirstOrDefault()?.Id;
+        }
+        catch
+        {
+            _items ??= [];
+        }
+        finally
+        {
+            _refreshCountdown = 30;
+            _loading = false;
+        }
+    }
+
+    private void SelectRequest(Guid id) => _selectedId = id;
+
+    private bool MatchesSearch(ElevationRequestDto r)
+    {
+        if (string.IsNullOrWhiteSpace(_search)) return true;
+        var s = _search.Trim();
+        return r.ActionDisplayName.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || r.RequesterUpn.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || r.TargetMachine.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || (r.TicketReference?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void BeginReview(Guid id, bool approve)
+    {
+        _selectedId = id;
+        if (approve)
+        {
+            var r = _items?.FirstOrDefault(x => x.Id == id);
+            if (r?.ActionType == ActionType.RunAsAdmin)
+            {
+                var execPath = r.Parameters.GetValueOrDefault("ExecutablePath")
+                            ?? r.Parameters.GetValueOrDefault("executablePath");
+                var lolbas = LolbasDatabase.Check(execPath);
+                if (lolbas != null)
+                {
+                    _lolbasEntry = lolbas;
+                    _lolbasRequestId = id;
+                    _lolbasError = null;
+                    _reviewNote = string.Empty;
+                    return;
+                }
+            }
+        }
+
+        _actingId = id;
+        _actingApprove = approve;
+        _reviewNote = string.Empty;
+        _reviewError = null;
+    }
+
+    private void CancelReview()
+    {
+        _actingId = null;
+        _reviewError = null;
+    }
+
+    private void CancelLolbas()
+    {
+        _lolbasEntry = null;
+        _lolbasError = null;
+    }
+
+    private async Task DenyFromLolbas()
+    {
+        _lolbasEntry = null;
+        _actingId = _lolbasRequestId;
+        _actingApprove = false;
+        _reviewNote = string.Empty;
+        await SubmitReview(_lolbasRequestId);
+    }
+
+    private async Task ApproveFromLolbas()
+    {
+        if (string.IsNullOrWhiteSpace(_reviewNote))
+        {
+            _lolbasError = "A reviewer note is required when approving a LOLBAS binary.";
+            return;
+        }
+        _lolbasEntry = null;
+        _actingId = _lolbasRequestId;
+        _actingApprove = true;
+        await SubmitReview(_lolbasRequestId);
+    }
+
+    private async Task SubmitReview(Guid id)
+    {
+        _submitting = true;
+        _reviewError = null;
+        try
+        {
+            var review = new ReviewRequestDto { Approved = _actingApprove, Note = _reviewNote };
+            await RequestService.ReviewAsync(id, review, GetReviewerUpn());
+            _actingId = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _reviewError = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private string GetReviewerUpn()
+    {
+        var user = HttpContextAccessor.HttpContext?.User;
+        return user?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+            ?? user?.Identity?.Name
+            ?? "unknown";
+    }
+
+    private static string TimeAgo(DateTimeOffset dt)
+    {
+        var mins = (int)(DateTimeOffset.UtcNow - dt).TotalMinutes;
+        return mins < 1 ? "just now"
+             : mins < 60 ? $"{mins}m ago"
+             : mins < 1440 ? $"{mins / 60}h {mins % 60}m ago"
+             : $"{mins / 1440}d ago";
+    }
+
+    private static string ExpiryLabel(TimeSpan remaining)
+    {
+        if (remaining <= TimeSpan.Zero) return "expired";
+        var mins = (int)remaining.TotalMinutes;
+        return mins < 60 ? $"in {mins}m" : $"in {(int)remaining.TotalHours}h {remaining.Minutes}m";
+    }
+
+    private static string RiskLabel(ElevationRequestDto r) => r.ActionType switch
+    {
+        ActionType.RunAsAdmin or ActionType.RunApprovedScript or ActionType.DeleteFile or ActionType.SetRegistryValue or ActionType.DeleteRegistryValue => "Elevated",
+        _ => "Standard"
+    };
+
+    private static string ConnectivityLabel(EndpointRegistrationDto? ep)
+    {
+        if (ep is null) return "Unknown endpoint";
+
+        var minutesAgo = ep.LastSeenAt.HasValue
+            ? (DateTimeOffset.UtcNow - ep.LastSeenAt.Value).TotalMinutes
+            : double.MaxValue;
+
+        if (minutesAgo < 10) return "Online";
+        if (minutesAgo < 60) return $"Offline {(int)minutesAgo}m";
+
+        var h = (int)(minutesAgo / 60);
+        return h >= 24 ? $"Offline {h / 24}d" : $"Offline {h}h";
+    }
+
+    private static string ActionIcon(ActionType t) => t switch
+    {
+        ActionType.InstallMsi               => "bi-box-arrow-in-down",
+        ActionType.UninstallMsi             => "bi-box-arrow-up",
+        ActionType.AddLocalGroupMember      => "bi-person-plus",
+        ActionType.RemoveLocalGroupMember   => "bi-person-dash",
+        ActionType.StartService             => "bi-play-circle",
+        ActionType.StopService              => "bi-stop-circle",
+        ActionType.RestartService           => "bi-arrow-repeat",
+        ActionType.CopyFile                 => "bi-files",
+        ActionType.DeleteFile               => "bi-trash",
+        ActionType.SetRegistryValue         => "bi-hdd",
+        ActionType.DeleteRegistryValue      => "bi-hdd",
+        ActionType.RunApprovedScript        => "bi-code-square",
+        ActionType.CreateLocalUser          => "bi-person-badge",
+        ActionType.DisableLocalUser         => "bi-person-slash",
+        ActionType.AddTrustedCertificate    => "bi-patch-check",
+        ActionType.SetFirewallRule          => "bi-shield",
+        ActionType.SetNetworkConfiguration  => "bi-diagram-3",
+        ActionType.OpenFileProperties       => "bi-file-lock",
+        ActionType.RunAsAdmin               => "bi-person-fill-up",
+        _                                   => "bi-lightning"
+    };
+}

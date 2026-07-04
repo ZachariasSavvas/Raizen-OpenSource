@@ -1,0 +1,101 @@
+@inherits LayoutComponentBase
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject IRequestService RequestSvc
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="rz-app">
+    <aside class="rz-sidebar">
+        <a class="rz-brand" href="">
+            <img src="/images/raizen.jpg" class="rz-brand-logo" alt="Raizen" />
+            Raizen
+        </a>
+        <NavMenu />
+    </aside>
+    <div class="rz-main">
+        <header class="rz-topbar">
+            <span class="text-muted" style="font-size:.8rem;letter-spacing:.02em">Raizen Admin Portal</span>
+            <div class="rz-topbar-spacer"></div>
+            <SoundToggle />
+            <ThemeToggle />
+            <LoginDisplay />
+        </header>
+        @if (_mfaDaysLeft.HasValue)
+        {
+            <div class="alert alert-warning py-2 px-3 mb-0 rounded-0 d-flex align-items-center gap-2" style="font-size:.85rem;border-radius:0!important">
+                <i class="bi bi-shield-exclamation"></i>
+                <span>
+                    <strong>MFA enrolment required.</strong>
+                    You have <strong>@_mfaDaysLeft day@(_mfaDaysLeft == 1 ? "" : "s")</strong> remaining to set up multi-factor authentication.
+                    After this deadline your account will be locked.
+                </span>
+                <a href="/Auth/MfaSetup" class="btn btn-warning btn-sm ms-auto py-0 px-2" style="font-size:.8rem">Set up now</a>
+            </div>
+        }
+        <div class="rz-content">
+            @Body
+        </div>
+    </div>
+</div>
+<ToastContainer />
+
+@code {
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource _cts = new();
+    private int? _mfaDaysLeft;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            if (state.User.FindFirst("must_change_pwd")?.Value == "true")
+                Nav.NavigateTo("/Auth/ChangePassword", forceLoad: true);
+
+            var deadlineStr = state.User.FindFirst("mfa_deadline")?.Value;
+            if (state.User.FindFirst("mfa_pending")?.Value == "true" &&
+                DateTimeOffset.TryParse(deadlineStr, out var deadline))
+            {
+                var days = (int)Math.Ceiling((deadline - DateTimeOffset.UtcNow).TotalDays);
+                _mfaDaysLeft = Math.Max(0, days);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        _ = PollTitleAsync();
+        await UpdateTitleAsync();
+    }
+
+    private async Task PollTitleAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(_cts.Token))
+                await UpdateTitleAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task UpdateTitleAsync()
+    {
+        try
+        {
+            var count = await RequestSvc.CountPendingAsync(_cts.Token);
+            var title = count > 0 ? $"({count}) Raizen" : "Raizen";
+            await JS.InvokeVoidAsync("raizenSetTitle", _cts.Token, title);
+        }
+        catch { /* silently ignore — title update is non-critical */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _timer?.Dispose();
+        await ValueTask.CompletedTask;
+    }
+}

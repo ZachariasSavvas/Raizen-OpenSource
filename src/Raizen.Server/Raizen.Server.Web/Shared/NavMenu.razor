@@ -1,0 +1,100 @@
+@inject Raizen.Server.Core.Services.IRequestService RequestSvc
+@implements IAsyncDisposable
+
+<div class="rz-nav">
+    <div class="rz-nav-section">Operations</div>
+    <NavLink class="rz-nav-link" href="" Match="NavLinkMatch.All">
+        <i class="bi bi-speedometer2"></i> Dashboard
+    </NavLink>
+    <AuthorizeView Policy="Operator">
+        <Authorized>
+            <NavLink class="rz-nav-link" href="pending">
+                <i class="bi bi-hourglass-split"></i> Pending Requests
+                @if (_pendingCount > 0)
+                {
+                    <span class="rz-nav-badge">@(_pendingCount > 99 ? "99+" : _pendingCount.ToString())</span>
+                }
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+    <NavLink class="rz-nav-link" href="requests" Match="NavLinkMatch.All">
+        <i class="bi bi-list-ul"></i> All Requests
+    </NavLink>
+    <AuthorizeView Policy="Admin">
+        <Authorized>
+            <div class="rz-nav-section">Administration</div>
+            <NavLink class="rz-nav-link" href="actions">
+                <i class="bi bi-collection"></i> Action Catalog
+            </NavLink>
+            <NavLink class="rz-nav-link" href="endpoints">
+                <i class="bi bi-pc-display"></i> Endpoints
+            </NavLink>
+            <NavLink class="rz-nav-link" href="auto-approval">
+                <i class="bi bi-shield-check"></i> Auto-Approval Rules
+            </NavLink>
+            <NavLink class="rz-nav-link" href="agent-deployment">
+                <i class="bi bi-box-arrow-down"></i> Agent Deployment
+            </NavLink>
+            <NavLink class="rz-nav-link" href="bulk-operations">
+                <i class="bi bi-layers"></i> Bulk Operations
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+    <div class="rz-nav-section">Compliance</div>
+    <NavLink class="rz-nav-link" href="audit">
+        <i class="bi bi-journal-text"></i> Audit Log
+    </NavLink>
+    <AuthorizeView Policy="Admin">
+        <Authorized>
+            <div class="rz-nav-section">System</div>
+            <NavLink class="rz-nav-link" href="settings" Match="NavLinkMatch.All">
+                <i class="bi bi-gear"></i> Settings
+            </NavLink>
+            <NavLink class="rz-nav-link" href="notifications" Match="NavLinkMatch.All">
+                <i class="bi bi-envelope"></i> Notifications
+            </NavLink>
+            <NavLink class="rz-nav-link" href="syslog" Match="NavLinkMatch.All">
+                <i class="bi bi-broadcast-pin"></i> Syslog / SIEM
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private int _pendingCount;
+    private PeriodicTimer? _timer;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshCountAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (await _timer.WaitForNextTickAsync(_cts.Token))
+                await InvokeAsync(RefreshCountAsync);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshCountAsync()
+    {
+        try
+        {
+            _pendingCount = await RequestSvc.CountPendingAsync(_cts.Token);
+            StateHasChanged();
+        }
+        catch { /* non-critical */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        _timer?.Dispose();
+    }
+}

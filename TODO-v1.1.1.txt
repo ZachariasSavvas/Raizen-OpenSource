@@ -1,0 +1,20 @@
+Raizen - Minor fixes for next release (v1.1.1)
+===============================================
+
+1. Password minimum inconsistency
+   File: src/Raizen.Server/Raizen.Server.Web/Pages/Auth/ChangePassword.cshtml.cs, line 24
+   Problem: self-service change-password enforces 8 chars; admin-created users enforce 12
+   Fix: change the check from < 8 to < 12 to match Settings.razor
+
+2. TOTP step has no separate lockout
+   File: src/Raizen.Server/Raizen.Server.Web/Pages/Auth/Totp.cshtml.cs
+   Problem: IP lockout only covers the password step; after a correct password the TOTP
+            step has no rate limiting (low risk -- attacker needs the password first,
+            6-digit code, 30-second window)
+   Fix: apply the same IP lockout logic from Login.cshtml.cs to the TOTP page
+
+3. In-process login lockout resets on server restart
+   File: src/Raizen.Server/Raizen.Server.Web/Pages/Auth/Login.cshtml.cs, line 17
+   Problem: _lockouts ConcurrentDictionary is in-memory, lost on restart
+   Fix: persist lockout entries to the DB (server_settings or a dedicated table)
+        with an expiry timestamp; read on startup, clean up expired rows periodically

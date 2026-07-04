@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Obfuscator>
+  <Var name="InPath"  value="." />
+  <Var name="OutPath" value=".\obfuscated" />
+
+  <!-- String encryption only: all string literals are replaced with calls to
+       a generated decryption helper. The RSA public key, SQL, config keys,
+       and error messages become unreadable in ILSpy/dnSpy. -->
+  <Var name="HideStrings" value="true" />
+
+  <!-- Disable ALL renaming to prevent DI, EF, Blazor breakage -->
+  <Var name="HidePrivateApi" value="false" />
+  <Var name="KeepPublicApi" value="true" />
+  <Var name="RenameProperties" value="false" />
+  <Var name="RenameFields" value="false" />
+  <Var name="RenameEvents" value="false" />
+  <Var name="OptimizeMethods" value="false" />
+
+  <Module file="Raizen.Server.Core.dll">
+    <!-- Force-skip ALL types to prevent any accidental renaming.
+         HideStrings still applies to method bodies regardless. -->
+    <SkipNamespace name="*" />
+  </Module>
+</Obfuscator>

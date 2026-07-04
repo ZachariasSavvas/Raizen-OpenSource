@@ -1,0 +1,47 @@
+Windows Registry Editor Version 5.00
+
+; ── Raizen: Add "Request Network Change" to all existing Raizen cascade menus ──
+; Targets HKLM\SOFTWARE\Classes (system-wide, requires admin).
+; Run as Administrator to import.
+
+; ── All files (*) ────────────────────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""
+
+; ── Folders (Directory) ───────────────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""
+
+; ── Folder / Desktop background ──────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\Background\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\Background\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""
+
+; ── Executables (.exe) ───────────────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\exefile\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\exefile\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""
+
+; ── MSI packages ─────────────────────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Msi.Package\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Msi.Package\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""
+
+; ── MMC snap-ins (.msc) ──────────────────────────────────────────────────────────
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Microsoft.Management.Console\shell\Raizen\shell\NetworkChange]
+"MUIVerb"="Request Network Change"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Microsoft.Management.Console\shell\Raizen\shell\NetworkChange\command]
+@="\"C:\\Program Files\\Raizen\\Tray\\Raizen.Endpoint.Tray.exe\" --network-change --config=\"C:\\ProgramData\\Raizen\\raizen-config.json\""

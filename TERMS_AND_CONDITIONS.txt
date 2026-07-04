@@ -1,0 +1,198 @@
+================================================================================
+        RAIZEN ENDPOINT PRIVILEGE MANAGEMENT - END USER LICENSE AGREEMENT
+                              Version 1.0 | March 2026
+================================================================================
+
+IMPORTANT - READ CAREFULLY BEFORE INSTALLING OR USING THIS SOFTWARE
+
+This End User License Agreement ("Agreement") is a legal agreement between you
+("User" or "Licensee") and the organization that deployed this software
+("Organization" or "Licensor") for the use of Raizen Endpoint Privilege
+Management ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound
+by the terms of this Agreement. If you do not agree to the terms of this
+Agreement, do not install or use the Software.
+
+--------------------------------------------------------------------------------
+1. GRANT OF LICENSE
+--------------------------------------------------------------------------------
+
+The Licensor grants you a non-exclusive, non-transferable, limited license to
+install and use the Software solely on devices owned or managed by the
+Organization for internal business purposes only.
+
+This license does not include the right to:
+  - Sublicense, sell, rent, lease, or otherwise transfer the Software.
+  - Modify, reverse-engineer, decompile, or disassemble the Software.
+  - Use the Software for any purpose outside of your authorized role within
+    the Organization.
+
+--------------------------------------------------------------------------------
+2. PURPOSE AND SCOPE OF THE SOFTWARE
+--------------------------------------------------------------------------------
+
+Raizen is a Just-In-Time (JIT) privilege elevation platform. Its purpose is to
+allow authorized users to request temporary, action-specific elevated privileges
+on managed endpoints, subject to approval by designated administrators.
+
+The Software is NOT intended to:
+  - Provide persistent administrator access.
+  - Bypass organizational security policies.
+  - Be used for personal, unauthorized, or malicious purposes.
+
+--------------------------------------------------------------------------------
+3. USER RESPONSIBILITIES
+--------------------------------------------------------------------------------
+
+By using this Software, you agree to:
+
+  a) Submit elevation requests only for legitimate, work-related purposes.
+  b) Provide accurate justifications for every request submitted.
+  c) Not attempt to exploit, bypass, or manipulate the approval workflow.
+  d) Not share your credentials, API keys, or access tokens with any other
+     person or system.
+  e) Report any suspected security vulnerabilities or unauthorized access to
+     your IT administrator immediately.
+  f) Comply with all applicable organizational policies, procedures, and
+     relevant laws and regulations.
+
+Any misuse of the Software, including but not limited to submitting false
+justifications, attempting unauthorized escalation, or tampering with the
+Software's components, may result in disciplinary action up to and including
+termination of employment, and may be subject to civil or criminal penalties.
+
+--------------------------------------------------------------------------------
+4. MONITORING AND AUDIT LOGGING
+--------------------------------------------------------------------------------
+
+YOU ACKNOWLEDGE AND CONSENT THAT:
+
+  a) All elevation requests, approvals, denials, and actions performed through
+     the Software are logged in an append-only audit trail.
+  b) The Organization may monitor, review, and retain all activity records
+     produced by the Software at any time and without prior notice.
+  c) Audit logs may be disclosed to law enforcement, regulatory authorities,
+     or legal counsel as required by law or organizational policy.
+  d) There is no expectation of privacy with respect to activities performed
+     through or recorded by this Software on Organization-managed devices.
+
+--------------------------------------------------------------------------------
+5. DATA COLLECTION
+--------------------------------------------------------------------------------
+
+The Software collects and transmits the following data to the Organization's
+management server:
+
+  - Machine identifier and hostname.
+  - Your user account name (UPN) and display name.
+  - Request details including action type, target parameters, and justification.
+  - Approval and execution timestamps.
+  - Execution results and any error information.
+
+This data is used solely for the administration, security, and auditing of
+privileged access within the Organization. The Organization's privacy policy
+governs the handling of this data.
+
+--------------------------------------------------------------------------------
+6. INTELLECTUAL PROPERTY
+--------------------------------------------------------------------------------
+
+The Software and all copies thereof are proprietary to the Licensor and title
+thereto remains with the Licensor. All rights in the Software not specifically
+granted in this Agreement are reserved to the Licensor.
+
+You acknowledge that no title to the intellectual property in the Software is
+transferred to you. You further acknowledge that title and full ownership rights
+to the Software will remain the exclusive property of the Licensor.
+
+--------------------------------------------------------------------------------
+7. DISCLAIMER OF WARRANTIES
+--------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. THE LICENSOR
+EXPRESSLY DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR
+OTHERWISE, INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL MEET YOUR REQUIREMENTS,
+THAT ITS OPERATION WILL BE UNINTERRUPTED OR ERROR-FREE, OR THAT DEFECTS WILL
+BE CORRECTED.
+
+--------------------------------------------------------------------------------
+8. LIMITATION OF LIABILITY
+--------------------------------------------------------------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, LOSS OF DATA, LOSS OF
+PROFITS, BUSINESS INTERRUPTION, OR LOSS OF BUSINESS INFORMATION) ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR INABILITY TO USE THE SOFTWARE, EVEN IF THE
+LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+--------------------------------------------------------------------------------
+9. SECURITY OBLIGATIONS
+--------------------------------------------------------------------------------
+
+You must not:
+
+  a) Attempt to intercept, tamper with, or replay network traffic generated
+     by the Software.
+  b) Attempt to extract, read, or modify stored credentials, API keys, or
+     configuration files beyond your authorized access level.
+  c) Introduce malware, unauthorized scripts, or malicious code via any
+     Software feature, including the "Run Approved Script" action.
+  d) Use the Software to perform actions on systems you are not authorized
+     to manage.
+
+Any such activity constitutes a material breach of this Agreement and may be
+reported to the appropriate authorities.
+
+--------------------------------------------------------------------------------
+10. TERMINATION
+--------------------------------------------------------------------------------
+
+This Agreement is effective until terminated. Your rights under this Agreement
+will terminate automatically and without notice if you fail to comply with any
+of its terms and conditions.
+
+Upon termination, you must cease all use of the Software and destroy all copies
+in your possession. The Organization reserves the right to revoke your access
+at any time without notice.
+
+Sections 4 (Monitoring and Audit Logging), 6 (Intellectual Property), 7
+(Disclaimer of Warranties), 8 (Limitation of Liability), and 11 (Governing Law)
+shall survive any termination of this Agreement.
+
+--------------------------------------------------------------------------------
+11. GOVERNING LAW
+--------------------------------------------------------------------------------
+
+This Agreement shall be governed by and construed in accordance with the laws
+of the jurisdiction in which the Organization is headquartered, without regard
+to its conflict of law provisions.
+
+--------------------------------------------------------------------------------
+12. ENTIRE AGREEMENT
+--------------------------------------------------------------------------------
+
+This Agreement constitutes the entire agreement between you and the Licensor
+with respect to the Software and supersedes all prior or contemporaneous
+understandings, communications, and agreements, whether written or oral,
+regarding the Software.
+
+If any provision of this Agreement is held to be unenforceable, that provision
+shall be modified to the minimum extent necessary to make it enforceable, and
+the remaining provisions shall continue in full force and effect.
+
+--------------------------------------------------------------------------------
+13. CONTACT
+--------------------------------------------------------------------------------
+
+If you have any questions about this Agreement or the Software, please contact
+your IT administrator or helpdesk.
+
+================================================================================
+  BY PROCEEDING WITH THE INSTALLATION YOU ACKNOWLEDGE THAT YOU HAVE READ THIS
+  AGREEMENT, UNDERSTAND IT, AND AGREE TO BE BOUND BY ITS TERMS AND CONDITIONS.
+================================================================================

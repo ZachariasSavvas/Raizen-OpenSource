@@ -1,0 +1,177 @@
+@page "/requests"
+@attribute [Authorize(Policy = "Operator")]
+@inject IRequestService RequestService
+@inject NavigationManager Nav
+
+<PageTitle>Requests | Raizen</PageTitle>
+
+<h1 class="rz-page-title">Elevation Requests</h1>
+<p class="rz-page-subtitle">Browse and filter all elevation requests across the fleet.</p>
+
+<div class="rz-filter-bar">
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Status</label>
+        <select class="form-select form-select-sm" style="min-width:140px" @bind="_statusFilter">
+            <option value="">All Statuses</option>
+            @foreach (var s in Enum.GetValues<RequestStatus>())
+            {
+                <option value="@s">@s</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Requester UPN</label>
+        <input class="form-control form-control-sm" style="min-width:180px" placeholder="user@domain" @bind="_upnFilter" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Machine</label>
+        <input class="form-control form-control-sm" style="min-width:140px" placeholder="Name or ID" @bind="_machineFilter" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">From</label>
+        <input class="form-control form-control-sm" type="date" style="min-width:140px" @bind="_fromFilter" />
+    </div>
+    <div>
+        <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">To</label>
+        <input class="form-control form-control-sm" type="date" style="min-width:140px" @bind="_toFilter" />
+    </div>
+    <div class="ms-auto align-self-end d-flex gap-2">
+        <button class="rz-btn rz-btn-primary" @onclick="Load">
+            <i class="bi bi-search"></i> Search
+        </button>
+        <div class="d-flex gap-1 align-items-end">
+            <select class="form-select form-select-sm" style="min-width:130px" @bind="_exportPeriod" title="Export period">
+                <option value="3m">Last 3 months</option>
+                <option value="6m">Last 6 months</option>
+                <option value="1y">Last year</option>
+            </select>
+            <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="ExportExcel" title="Export to Excel (ISO 27001)">
+                <i class="bi bi-file-earmark-excel"></i> Export
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading...
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Failed to load requests.</strong> @_error
+    </div>
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <div class="rz-card">
+        <div class="rz-empty">
+            <i class="bi bi-inbox"></i>
+            No requests found.
+        </div>
+    </div>
+}
+else
+{
+    <div class="rz-card">
+        <table class="rz-table">
+            <thead>
+                <tr>
+                    <th>Action</th>
+                    <th>Requester</th>
+                    <th>Machine</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _result.Items)
+                {
+                    <tr>
+                        <td><strong>@r.ActionDisplayName</strong></td>
+                        <td>@r.RequesterUpn</td>
+                        <td><code style="font-size:.8rem">@r.TargetMachine</code></td>
+                        <td><StatusBadge Status="r.Status" /></td>
+                        <td>@r.SubmittedAt.ToLocalTime().ToString("g")</td>
+                        <td>
+                            <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests/@r.Id">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="PrevPage" disabled="@(_page == 1)">
+            <i class="bi bi-chevron-left"></i> Previous
+        </button>
+        <span class="text-muted" style="font-size:.85rem">Page @_page of @_result.TotalPages</span>
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="NextPage" disabled="@(_page >= _result.TotalPages)">
+            Next <i class="bi bi-chevron-right"></i>
+        </button>
+    </div>
+}
+
+@code {
+    private PagedResult<ElevationRequestDto>? _result;
+    private bool _loading;
+    private string? _error;
+    private string _statusFilter = "";
+    private string _upnFilter = "";
+    private string _machineFilter = "";
+    private DateOnly? _fromFilter;
+    private DateOnly? _toFilter;
+    private int _page = 1;
+    private string _exportPeriod = "3m";
+
+    protected override async Task OnInitializedAsync()
+        => await Load();
+
+
+    private async Task Load()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            RequestStatus? status = Enum.TryParse<RequestStatus>(_statusFilter, out var s) ? s : null;
+            DateTimeOffset? from = _fromFilter.HasValue
+                ? new DateTimeOffset(_fromFilter.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+                : null;
+            DateTimeOffset? to = _toFilter.HasValue
+                ? new DateTimeOffset(_toFilter.Value.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero)
+                : null;
+            _result = await RequestService.ListAsync(
+                status,
+                string.IsNullOrEmpty(_upnFilter) ? null : _upnFilter,
+                string.IsNullOrEmpty(_machineFilter) ? null : _machineFilter,
+                _page, 30,
+                from: from, to: to);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PrevPage() { if (_page > 1) { _page--; await Load(); } }
+    private async Task NextPage() { _page++; await Load(); }
+
+    private void ExportExcel()
+    {
+        // forceLoad bypasses Blazor client-side routing so the browser receives
+        // the file download directly from the MVC ExportController.
+        Nav.NavigateTo($"/export/requests?period={_exportPeriod}", forceLoad: true);
+    }
+}

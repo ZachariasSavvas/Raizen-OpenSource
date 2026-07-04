@@ -1,0 +1,313 @@
+@using Microsoft.JSInterop
+@using Raizen.Server.Core.Licensing
+@using Raizen.Server.Core.Services
+@using Raizen.Shared.Enums
+@inject IApprovalToastNotifier Notifier
+@inject ILicenseService LicenseSvc
+@inject IRequestService RequestSvc
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (_enabled && _toasts.Count > 0)
+{
+    <div class="rz-toast-container">
+        @if (_overflowCount > 0)
+        {
+            <a class="rz-toast-overflow" href="/requests?status=Pending">
+                +@_overflowCount more pending request@(_overflowCount == 1 ? "" : "s")
+            </a>
+        }
+        @foreach (var toast in _visibleToasts)
+        {
+            <div class="rz-toast @(toast.Dismissed ? "rz-toast-exit" : "rz-toast-enter")" @key="toast.RequestId">
+                <div class="rz-toast-header">
+                    <span class="rz-toast-icon">
+                        <i class="bi bi-shield-lock"></i>
+                    </span>
+                    <strong class="rz-toast-title">@toast.ActionDisplayName</strong>
+                    <button class="rz-toast-close" @onclick="() => DismissToast(toast)" title="Dismiss">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="rz-toast-body">
+                    <div class="rz-toast-detail">
+                        <i class="bi bi-pc-display"></i> @toast.TargetMachine
+                    </div>
+                    <div class="rz-toast-detail">
+                        <i class="bi bi-person"></i> @toast.RequesterUpn
+                    </div>
+                    <div class="rz-toast-detail rz-toast-time">
+                        <i class="bi bi-clock"></i> @FormatRelativeTime(toast.SubmittedAt)
+                    </div>
+                </div>
+                <div class="rz-toast-actions">
+                    @if (toast.IsProcessing)
+                    {
+                        <span class="rz-toast-processing">Processing...</span>
+                    }
+                    else if (toast.ResultMessage is not null)
+                    {
+                        <span class="rz-toast-result @(toast.ResultSuccess ? "text-success" : "text-danger")">
+                            <i class="bi @(toast.ResultSuccess ? "bi-check-circle" : "bi-exclamation-circle")"></i>
+                            @toast.ResultMessage
+                        </span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-success rz-toast-btn" @onclick="() => ApproveAsync(toast)">
+                            <i class="bi bi-check-lg"></i> Approve
+                        </button>
+                        <button class="btn btn-sm btn-danger rz-toast-btn" @onclick="() => DenyAsync(toast)">
+                            <i class="bi bi-x-lg"></i> Deny
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary rz-toast-btn" @onclick="() => ViewRequest(toast)">
+                            <i class="bi bi-eye"></i> View
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int MaxVisible = 5;
+
+    private bool _enabled;
+    private string? _currentUserUpn;
+    private readonly List<ToastItem> _toasts = new();
+    private List<ToastItem> _visibleToasts = new();
+    private int _overflowCount;
+    private DateTimeOffset _lastSeenTimestamp = DateTimeOffset.UtcNow;
+    private bool _hasDoneFirstRender;
+    private bool _hasCaughtUp;
+    private bool _disposed;
+    private readonly HashSet<Guid> _dismissedIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _enabled = LicenseSvc.HasFeature(LicenseFeature.RealtimeToasts);
+        if (!_enabled) return;
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        _currentUserUpn = state.User.Identity?.Name;
+
+        Notifier.OnNewRequest += OnNewRequest;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _enabled)
+        {
+            _hasDoneFirstRender = true;
+            // Request browser notification permission
+            try { await JS.InvokeVoidAsync("raizenToasts.requestPermission"); } catch { }
+            // Init notification sound
+            try { await JS.InvokeVoidAsync("raizenToasts.initSound"); } catch { }
+            // Start keepalive ping
+            try { await JS.InvokeVoidAsync("raizenToasts.startKeepalive"); } catch { }
+            // Initial catch-up
+            await CatchUpAsync();
+            _hasCaughtUp = true;
+        }
+        else if (!firstRender && _hasDoneFirstRender && _enabled && !_hasCaughtUp)
+        {
+            // Circuit reconnected after disconnect: catch up on missed pending requests
+            await CatchUpAsync();
+            _hasCaughtUp = true;
+        }
+    }
+
+    private async void OnNewRequest(Guid requestId)
+    {
+        if (_disposed) return;
+        try
+        {
+            // Avoid duplicate toasts and skip dismissed ones
+            if (_dismissedIds.Contains(requestId)) return;
+            if (_toasts.Any(t => t.RequestId == requestId)) return;
+
+            var dto = await RequestSvc.GetByIdAsync(requestId);
+            if (dto is null || dto.Status != RequestStatus.Pending) return;
+
+            var toast = new ToastItem
+            {
+                RequestId        = dto.Id,
+                ActionDisplayName = dto.ActionDisplayName,
+                TargetMachine    = dto.TargetMachine,
+                RequesterUpn     = dto.RequesterUpn,
+                SubmittedAt      = dto.SubmittedAt,
+            };
+
+            _toasts.Insert(0, toast);
+            _lastSeenTimestamp = DateTimeOffset.UtcNow;
+            UpdateVisible();
+
+            await InvokeAsync(StateHasChanged);
+
+            // Play notification sound
+            try { await JS.InvokeVoidAsync("raizenToasts.playSound"); } catch { }
+
+            // Fire browser notification if tab is hidden
+            try
+            {
+                await JS.InvokeVoidAsync("raizenToasts.showIfHidden",
+                    $"{dto.ActionDisplayName} on {dto.TargetMachine}",
+                    $"Requested by {dto.RequesterUpn}",
+                    $"/requests/{dto.Id}");
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit disconnected; trigger catch-up on reconnect
+                _hasCaughtUp = false;
+            }
+            catch { }
+        }
+        catch { /* toast notification must not crash the circuit */ }
+    }
+
+    private async Task CatchUpAsync()
+    {
+        try
+        {
+            var pending = await RequestSvc.ListAsync(
+                RequestStatus.Pending, null, null, 1, MaxVisible + 5,
+                from: _lastSeenTimestamp.AddMinutes(-1));
+
+            foreach (var dto in pending.Items)
+            {
+                if (_dismissedIds.Contains(dto.Id)) continue;
+                if (_toasts.Any(t => t.RequestId == dto.Id)) continue;
+
+                _toasts.Insert(0, new ToastItem
+                {
+                    RequestId        = dto.Id,
+                    ActionDisplayName = dto.ActionDisplayName,
+                    TargetMachine    = dto.TargetMachine,
+                    RequesterUpn     = dto.RequesterUpn,
+                    SubmittedAt      = dto.SubmittedAt,
+                });
+            }
+
+            _lastSeenTimestamp = DateTimeOffset.UtcNow;
+            UpdateVisible();
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task ApproveAsync(ToastItem toast)
+    {
+        toast.IsProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            await RequestSvc.ReviewAsync(toast.RequestId,
+                new Raizen.Shared.DTOs.ReviewRequestDto { Approved = true, Note = "Approved via toast" },
+                _currentUserUpn ?? throw new InvalidOperationException("User not authenticated"));
+
+            toast.IsProcessing = false;
+            toast.ResultSuccess = true;
+            toast.ResultMessage = "Approved";
+            StateHasChanged();
+
+            // Auto-dismiss after 2 seconds
+            _ = AutoDismissAsync(toast, 2000);
+        }
+        catch (Exception ex)
+        {
+            toast.IsProcessing = false;
+            toast.ResultSuccess = false;
+            toast.ResultMessage = ex.Message.Length > 60 ? ex.Message[..60] + "..." : ex.Message;
+            StateHasChanged();
+            _ = AutoDismissAsync(toast, 4000);
+        }
+    }
+
+    private async Task DenyAsync(ToastItem toast)
+    {
+        toast.IsProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            await RequestSvc.ReviewAsync(toast.RequestId,
+                new Raizen.Shared.DTOs.ReviewRequestDto { Approved = false, Note = "Denied via toast" },
+                _currentUserUpn ?? throw new InvalidOperationException("User not authenticated"));
+
+            toast.IsProcessing = false;
+            toast.ResultSuccess = true;
+            toast.ResultMessage = "Denied";
+            StateHasChanged();
+
+            _ = AutoDismissAsync(toast, 2000);
+        }
+        catch (Exception ex)
+        {
+            toast.IsProcessing = false;
+            toast.ResultSuccess = false;
+            toast.ResultMessage = ex.Message.Length > 60 ? ex.Message[..60] + "..." : ex.Message;
+            StateHasChanged();
+            _ = AutoDismissAsync(toast, 4000);
+        }
+    }
+
+    private void ViewRequest(ToastItem toast)
+    {
+        DismissToast(toast);
+        Nav.NavigateTo($"/requests/{toast.RequestId}");
+    }
+
+    private void DismissToast(ToastItem toast)
+    {
+        _dismissedIds.Add(toast.RequestId);
+        _toasts.Remove(toast);
+        UpdateVisible();
+        StateHasChanged();
+    }
+
+    private async Task AutoDismissAsync(ToastItem toast, int delayMs)
+    {
+        await Task.Delay(delayMs);
+        await InvokeAsync(() => DismissToast(toast));
+    }
+
+    private void UpdateVisible()
+    {
+        _visibleToasts = _toasts.Take(MaxVisible).ToList();
+        _overflowCount = Math.Max(0, _toasts.Count - MaxVisible);
+    }
+
+    private static string FormatRelativeTime(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed.TotalSeconds < 10) return "just now";
+        if (elapsed.TotalSeconds < 60) return $"{(int)elapsed.TotalSeconds}s ago";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24)   return $"{(int)elapsed.TotalHours}h ago";
+        return time.LocalDateTime.ToString("MMM d, HH:mm");
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Notifier.OnNewRequest -= OnNewRequest;
+        try { _ = JS.InvokeVoidAsync("raizenToasts.stopKeepalive"); } catch { }
+    }
+
+    private sealed class ToastItem
+    {
+        public Guid RequestId { get; init; }
+        public string ActionDisplayName { get; init; } = "";
+        public string TargetMachine { get; init; } = "";
+        public string RequesterUpn { get; init; } = "";
+        public DateTimeOffset SubmittedAt { get; init; }
+        public bool IsProcessing { get; set; }
+        public bool ResultSuccess { get; set; }
+        public string? ResultMessage { get; set; }
+        public bool Dismissed { get; set; }
+    }
+}

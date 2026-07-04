@@ -1,0 +1,33 @@
+@inject IJSRuntime JS
+
+<button class="rz-sound-toggle" @onclick="Toggle" title="@(_soundOn ? "Mute notifications" : "Unmute notifications")" aria-label="Toggle notification sound">
+    <i class="bi @(_soundOn ? "bi-volume-up-fill" : "bi-volume-mute-fill")"></i>
+</button>
+
+@code {
+    private bool _soundOn = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _soundOn = await JS.InvokeAsync<bool>("raizenToasts.isSoundEnabled");
+                StateHasChanged();
+            }
+            catch (JSDisconnectedException) { }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    private async Task Toggle()
+    {
+        try
+        {
+            _soundOn = await JS.InvokeAsync<bool>("raizenToasts.toggleSound");
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+}
