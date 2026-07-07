@@ -17,7 +17,7 @@
 .PARAMETER AgentVersion
     When specified, updates AgentDeployment:CurrentVersion in the API's
     appsettings.Production.json to this value so endpoints will self-update.
-    Should match the version of RaizenEndpoint.msi you deployed to InstallerPath.
+    Should match the version of agent\RaizenEndpoint.msi in this package.
 
 .PARAMETER Force
     Skip the confirmation prompt.
@@ -41,6 +41,7 @@ $ApiInstall  = Join-Path $InstallRoot 'Api'
 $WebInstall  = Join-Path $InstallRoot 'Web'
 $ApiSource   = Join-Path $PackageDir  'api'
 $WebSource   = Join-Path $PackageDir  'web'
+$AgentMsiSource = Join-Path $PackageDir 'agent\RaizenEndpoint.msi'
 
 function Write-Step { param([string]$m) Write-Host "  $m" -ForegroundColor Cyan }
 function Write-OK   { param([string]$m) Write-Host "  [OK] $m" -ForegroundColor Green }
@@ -136,6 +137,50 @@ if (Test-Path $apiTmpCfg) { Copy-Item $apiTmpCfg $apiCfg -Force; Write-OK "Resto
 if (Test-Path $webTmpCfg) { Copy-Item $webTmpCfg $webCfg -Force; Write-OK "Restored Web config" }
 Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# -- Copy endpoint MSI for agent auto-update --------------------------------
+if (Test-Path $AgentMsiSource) {
+    Write-Step 'Copying endpoint MSI for agent auto-update...'
+
+    $installerPath = ''
+    if (Test-Path $apiCfg) {
+        try {
+            $cfg = Get-Content $apiCfg -Raw | ConvertFrom-Json
+            if ($null -ne $cfg.AgentDeployment -and
+                $cfg.AgentDeployment.PSObject.Properties.Name -contains 'InstallerPath') {
+                $installerPath = [string] $cfg.AgentDeployment.InstallerPath
+            }
+        } catch {
+            Write-Warn "Could not read AgentDeployment:InstallerPath from API config: $($_.Exception.Message)"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($installerPath)) {
+        $installerPath = Join-Path $InstallRoot 'updates\RaizenEndpoint.msi'
+        if (Test-Path $apiCfg) {
+            $cfg = Get-Content $apiCfg -Raw | ConvertFrom-Json
+            if ($null -eq $cfg.AgentDeployment) {
+                $cfg | Add-Member -NotePropertyName AgentDeployment -NotePropertyValue ([PSCustomObject]@{})
+            }
+            if ($cfg.AgentDeployment.PSObject.Properties.Name -notcontains 'InstallerPath') {
+                $cfg.AgentDeployment | Add-Member -NotePropertyName InstallerPath -NotePropertyValue $installerPath
+            } else {
+                $cfg.AgentDeployment.InstallerPath = $installerPath
+            }
+            $cfg | ConvertTo-Json -Depth 10 | Set-Content $apiCfg -Encoding UTF8
+            Write-OK "AgentDeployment:InstallerPath set to $installerPath"
+        } else {
+            Write-Warn "API config not found -- copied MSI to default path, but InstallerPath was not saved"
+        }
+    }
+
+    $installerDir = Split-Path $installerPath -Parent
+    New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
+    Copy-Item $AgentMsiSource $installerPath -Force
+    Write-OK "Endpoint MSI copied to $installerPath"
+} else {
+    Write-Warn "Endpoint MSI not found in package at $AgentMsiSource -- agent auto-update package was not refreshed"
+}
+
 # -- Start services ----------------------------------------------------------
 Write-Step 'Starting services...'
 foreach ($svc in @('RaizenApi', 'RaizenWeb')) {
@@ -163,6 +208,8 @@ if ($AgentVersion -ne '') {
         $cfg = Get-Content $apiCfg -Raw | ConvertFrom-Json
         if ($null -eq $cfg.AgentDeployment) {
             $cfg | Add-Member -NotePropertyName AgentDeployment -NotePropertyValue ([PSCustomObject]@{ CurrentVersion = $AgentVersion })
+        } elseif ($cfg.AgentDeployment.PSObject.Properties.Name -notcontains 'CurrentVersion') {
+            $cfg.AgentDeployment | Add-Member -NotePropertyName CurrentVersion -NotePropertyValue $AgentVersion
         } else {
             $cfg.AgentDeployment.CurrentVersion = $AgentVersion
         }
