@@ -1,5 +1,4 @@
 using Npgsql;
-using Raizen.Server.Core.Licensing;
 using Raizen.Server.Core.Services;
 
 namespace Raizen.Server.Web.Services;
@@ -12,18 +11,15 @@ namespace Raizen.Server.Web.Services;
 public sealed class PgNotifyListenerService : BackgroundService
 {
     private readonly IApprovalToastNotifier _notifier;
-    private readonly ILicenseService _license;
     private readonly string _connectionString;
     private readonly ILogger<PgNotifyListenerService> _logger;
 
     public PgNotifyListenerService(
         IApprovalToastNotifier notifier,
-        ILicenseService license,
         IConfiguration config,
         ILogger<PgNotifyListenerService> logger)
     {
         _notifier         = notifier;
-        _license          = license;
         _connectionString = config.GetConnectionString("Default")!;
         _logger           = logger;
     }
@@ -58,9 +54,6 @@ public sealed class PgNotifyListenerService : BackgroundService
 
         conn.Notification += (_, args) =>
         {
-            if (!_license.HasFeature(LicenseFeature.RealtimeToasts))
-                return;
-
             if (Guid.TryParse(args.Payload, out var requestId))
             {
                 _notifier.NotifyNewRequest(requestId);

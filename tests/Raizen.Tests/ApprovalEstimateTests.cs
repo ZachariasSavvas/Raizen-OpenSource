@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Raizen.Endpoint.Tray.Forms;
 using Raizen.Server.Core.Data;
-using Raizen.Server.Core.Licensing;
 using Raizen.Server.Core.Models;
 using Raizen.Server.Core.Services;
 using Raizen.Shared.DTOs;
@@ -37,7 +36,7 @@ public sealed class ApprovalEstimateTests : IDisposable
 
         var syslog = new NullSyslogSender();
         var audit = new AuditService(new TestDbContextFactory(_dbOpts), syslog, cfg);
-        _catalog = new ActionCatalogService(new TestDbContextFactory(_dbOpts), audit, new AllFeaturesLicenseStub());
+        _catalog = new ActionCatalogService(new TestDbContextFactory(_dbOpts), audit);
     }
 
     public void Dispose() => _db.Dispose();

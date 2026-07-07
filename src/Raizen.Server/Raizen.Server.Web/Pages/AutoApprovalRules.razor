@@ -3,8 +3,6 @@
 @inject IAutoApprovalService AutoApproval
 @inject IActionCatalogService Catalog
 @inject IHttpContextAccessor HttpContextAccessor
-@inject ILicenseService LicenseSvc
-@using Raizen.Server.Core.Licensing
 @using Raizen.Server.Core.Services
 @using Raizen.Shared.DTOs
 @using Raizen.Shared.Enums
@@ -13,15 +11,6 @@
 
 <h1 class="rz-page-title">Auto-Approval Rules</h1>
 <p class="rz-page-subtitle">Requests matching any enabled rule are automatically approved without manual review.</p>
-
-@if (!_hasFeature)
-{
-    <UpgradeBanner Title="Auto-Approval Rules">
-        Configure rules to automatically approve low-risk requests without manual review.
-    </UpgradeBanner>
-}
-else
-{
 
 @if (!string.IsNullOrEmpty(_error))
 {
@@ -157,10 +146,7 @@ else
     </div>
 }
 
-} @* end else _hasFeature *@
-
 @code {
-    private bool _hasFeature;
     private List<AutoApprovalRuleDto>   _rules   = [];
     private List<ActionDefinitionDto>   _actions = [];
     private bool   _loading = true;
@@ -175,8 +161,6 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _hasFeature = LicenseSvc.HasFeature(LicenseFeature.AutoApprovalRules);
-        if (!_hasFeature) { _loading = false; return; }
         _actions = await Catalog.ListAsync();
         await LoadRules();
     }

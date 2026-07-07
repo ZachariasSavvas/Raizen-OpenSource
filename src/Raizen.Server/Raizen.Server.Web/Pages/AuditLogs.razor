@@ -5,11 +5,9 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthState
-@inject ILicenseService LicenseSvc
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
 @using Raizen.Server.Core.Data
-@using Raizen.Server.Core.Licensing
 @using Raizen.Server.Core.Services
 
 <PageTitle>Audit Log | Raizen</PageTitle>
@@ -38,11 +36,10 @@
         <button class="rz-btn rz-btn-primary" @onclick="Load">
             <i class="bi bi-search"></i> Search
         </button>
-        <button class="rz-btn rz-btn-ghost" @onclick="ExportExcel" disabled="@(!_canExport)"
+        <button class="rz-btn rz-btn-ghost" @onclick="ExportExcel"
                 title="Export to Excel">
             <i class="bi bi-file-earmark-excel me-1"></i>
             Export Excel
-            @if (!_canExport) { <i class="bi bi-lock-fill ms-1" style="font-size:.7rem"></i> }
         </button>
         <button class="rz-btn rz-btn-ghost" @onclick="VerifyChain" disabled="@(_verifying || _repairing)"
                 title="Verify the HMAC hash chain to detect tampering">
@@ -177,7 +174,6 @@ else
     private int? _repairResult;
     private (int Total, int Invalid)? _chainResult;
     private bool _hasMore;
-    private bool _canExport;
     private string _eventFilter = "";
     private string _userFilter = "";
     private DateTime? _from;
@@ -187,7 +183,6 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _canExport = LicenseSvc.HasFeature(LicenseFeature.ExcelExport);
         await Load();
     }
 
@@ -279,7 +274,6 @@ else
 
     private void ExportExcel()
     {
-        if (!_canExport) return;
         var qs = new System.Text.StringBuilder("/export/audit?");
         if (!string.IsNullOrEmpty(_eventFilter)) qs.Append($"eventFilter={Uri.EscapeDataString(_eventFilter)}&");
         if (!string.IsNullOrEmpty(_userFilter))  qs.Append($"userFilter={Uri.EscapeDataString(_userFilter)}&");

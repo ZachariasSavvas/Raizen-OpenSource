@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Raizen.Server.Core.Data;
-using Raizen.Server.Core.Licensing;
 using Raizen.Server.Core.Models;
 using Raizen.Shared.DTOs;
 using Raizen.Shared.Enums;
@@ -27,7 +26,7 @@ public interface IActionCatalogService
     void ValidateParameters(ActionDefinition definition, Dictionary<string, string> parameters);
 }
 
-public sealed class ActionCatalogService(IDbContextFactory<RaizenDbContext> dbFactory, IAuditService audit, ILicenseService licenseService) : IActionCatalogService
+public sealed class ActionCatalogService(IDbContextFactory<RaizenDbContext> dbFactory, IAuditService audit) : IActionCatalogService
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
@@ -110,8 +109,7 @@ public sealed class ActionCatalogService(IDbContextFactory<RaizenDbContext> dbFa
             AutoApprove = dto.AutoApprove,
             AutoApproveConditionDescription = dto.AutoApproveConditionDescription,
             ApprovalWindowMinutes = dto.ApprovalWindowMinutes,
-            MinApprovers = licenseService.HasFeature(LicenseFeature.MultiApprover)
-                ? Math.Max(1, dto.MinApprovers) : 1,
+            MinApprovers = Math.Max(1, dto.MinApprovers),
             IsEnabled = dto.IsEnabled,
             CreatedByUpn = createdByUpn,
         };
@@ -141,8 +139,7 @@ public sealed class ActionCatalogService(IDbContextFactory<RaizenDbContext> dbFa
         entity.AutoApprove = dto.AutoApprove;
         entity.AutoApproveConditionDescription = dto.AutoApproveConditionDescription;
         entity.ApprovalWindowMinutes = dto.ApprovalWindowMinutes;
-        entity.MinApprovers = licenseService.HasFeature(LicenseFeature.MultiApprover)
-            ? Math.Max(1, dto.MinApprovers) : 1;
+        entity.MinApprovers = Math.Max(1, dto.MinApprovers);
         entity.IsEnabled = dto.IsEnabled;
         entity.UpdatedAt = DateTimeOffset.UtcNow;
 

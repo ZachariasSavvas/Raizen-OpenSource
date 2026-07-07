@@ -34,7 +34,7 @@ public sealed class ScheduledExecutionTests : IDisposable
         var factory = new TestDbContextFactory(opts);
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
         var notifications = new NullNotificationService();
         var autoApproval = new AutoApprovalService(factory);
 

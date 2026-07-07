@@ -142,7 +142,7 @@
       raizen-config.json is used regardless of the working directory.
     -->
 
-    <!-- exefile (.exe): primary user path, RunAsAdmin only -->
+    <!-- exefile (.exe): full Raizen action set -->
     <ComponentGroup Id="ExefileMenu" Directory="RAIZENINSTALLDIR">
       <Component Id="ExefileMenuComp" Guid="{F6A7B8C9-D0E1-2345-F012-456789012345}">
         <RegistryValue Root="HKCR" Key="exefile\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
@@ -151,11 +151,21 @@
 
         <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
         <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="exefile\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
 
       </Component>
     </ComponentGroup>
 
-    <!-- Msi.Package (.msi): primary user path, RunAsAdmin only -->
+    <!-- Msi.Package (.msi): full Raizen action set -->
     <ComponentGroup Id="MsiPackageMenu" Directory="RAIZENINSTALLDIR">
       <Component Id="MsiPackageMenuComp" Guid="{A7B8C9D0-E1F2-3456-0123-567890123456}">
         <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
@@ -164,11 +174,21 @@
 
         <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
         <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Msi.Package\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
 
       </Component>
     </ComponentGroup>
 
-    <!-- Microsoft.Management.Console (.msc): primary user path, RunAsAdmin only -->
+    <!-- Microsoft.Management.Console (.msc): full Raizen action set -->
     <ComponentGroup Id="MmcMenu" Directory="RAIZENINSTALLDIR">
       <Component Id="MmcMenuComp" Guid="{B8C9D0E1-F2A3-4567-1234-678901234567}">
         <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
@@ -177,7 +197,76 @@
 
         <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\RunAsAdmin"         Name="MUIVerb" Value="Request to Run as Admin" Type="string" Action="write" />
         <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\RunAsAdmin\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --run-as-admin=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Microsoft.Management.Console\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
 
+      </Component>
+    </ComponentGroup>
+
+    <!-- Generic files (*): no RunAsAdmin, but all request helpers -->
+    <ComponentGroup Id="GenericFileMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="GenericFileMenuComp" Guid="{576FD331-3E7C-41E4-BD67-2E32A7A59FE9}">
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="*\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Directories and directory backgrounds -->
+    <ComponentGroup Id="DirectoryMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="DirectoryMenuComp" Guid="{AD41B823-C2D7-47B0-B4DA-A4F81EBE5FD6}">
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="DirectoryBackgroundMenu" Directory="RAIZENINSTALLDIR">
+      <Component Id="DirectoryBackgroundMenuComp" Guid="{88091481-03A4-40DF-995A-287B5E08C106}">
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen" Name="MUIVerb"     Value="Raizen" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen" Name="Icon"        Value="[TRAYDIR]Raizen.Endpoint.Tray.exe,0" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen" Name="SubCommands" Value="" Type="string" Action="write" />
+
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\FileTransfer"         Name="MUIVerb" Value="Request File Transfer" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\FileTransfer\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-transfer=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\FilePerms"         Name="MUIVerb" Value="Request File Permission" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\FilePerms\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --file-permissions=&quot;%1&quot; --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\NetworkChange"         Name="MUIVerb" Value="Request Network Change" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\NetworkChange\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --network-change --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\EnvVar"         Name="MUIVerb" Value="Request System Variable" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\EnvVar\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --env-var --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\Services"         Name="MUIVerb" Value="Services" Type="string" Action="write" />
+        <RegistryValue Root="HKCR" Key="Directory\Background\shell\Raizen\shell\Services\command" Value="&quot;[TRAYDIR]Raizen.Endpoint.Tray.exe&quot; --services --config=&quot;[RAIZENDATADIR]raizen-config.json&quot;" Type="string" Action="write" />
       </Component>
     </ComponentGroup>
 
@@ -259,6 +348,9 @@
       <ComponentGroupRef Id="ExefileMenu" />
       <ComponentGroupRef Id="MsiPackageMenu" />
       <ComponentGroupRef Id="MmcMenu" />
+      <ComponentGroupRef Id="GenericFileMenu" />
+      <ComponentGroupRef Id="DirectoryMenu" />
+      <ComponentGroupRef Id="DirectoryBackgroundMenu" />
       <ComponentGroupRef Id="FirewallComponents" />
     </Feature>
 

@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Raizen.Server.Core.Licensing;
 
 namespace Raizen.Server.Core.Services;
 
@@ -12,10 +11,11 @@ namespace Raizen.Server.Core.Services;
 /// </summary>
 public sealed class ExpiryBackgroundService(
     IServiceScopeFactory scopeFactory,
-    ILicenseService entitlement,
     ILoginLockoutService lockoutService,
     ILogger<ExpiryBackgroundService> logger) : BackgroundService
 {
+    private const int DormantDays = 30;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Expiry background service started.");
@@ -32,7 +32,7 @@ public sealed class ExpiryBackgroundService(
                 await requestSvc.ExpireStaleRequestsAsync(stoppingToken);
 
                 var endpointSvc = scope.ServiceProvider.GetRequiredService<IEndpointService>();
-                await endpointSvc.DisableDormantAsync(entitlement.DormantDays, stoppingToken);
+                await endpointSvc.DisableDormantAsync(DormantDays, stoppingToken);
 
                 await endpointSvc.CleanupExpiredPreviousKeysAsync(stoppingToken);
                 await lockoutService.CleanupExpiredAsync(stoppingToken);

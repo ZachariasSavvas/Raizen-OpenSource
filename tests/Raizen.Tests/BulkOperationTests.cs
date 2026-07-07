@@ -36,7 +36,7 @@ public sealed class BulkOperationTests : IDisposable
         var factory = new TestDbContextFactory(opts);
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         _bulkSvc = new BulkOperationService(factory, catalog, audit);
 

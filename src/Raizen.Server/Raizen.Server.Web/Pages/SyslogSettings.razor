@@ -1,23 +1,15 @@
 @page "/syslog"
 @attribute [Authorize(Policy = "Admin")]
 @inject ISyslogSender SyslogSvc
-@inject ILicenseService LicenseSvc
 @inject IAuditService Audit
 @inject AuthenticationStateProvider Auth
-@using Raizen.Server.Core.Licensing
 
 <PageTitle>Syslog / SIEM | Raizen</PageTitle>
 
 <h1 class="rz-page-title">Syslog / SIEM Forwarding</h1>
 <p class="rz-page-subtitle">Forward audit events to your SIEM collector in real time via syslog (UDP or TCP).</p>
 
-@if (!LicenseSvc.HasFeature(LicenseFeature.SyslogForwarding))
-{
-    <UpgradeBanner Title="Syslog / SIEM Forwarding">
-        Forward audit events to your SIEM in CEF or RFC 5424 format. Available on Business tier and above.
-    </UpgradeBanner>
-}
-else if (_loading)
+@if (_loading)
 {
     <div class="d-flex align-items-center gap-2 text-muted">
         <span class="spinner-border spinner-border-sm"></span> Loading...

@@ -847,11 +847,11 @@ public sealed class AgentAutoUpdateTests
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  12. License feature gate (402 response)
+    //  12. Server declined update (402 response)
     // ═══════════════════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task CheckAndUpdate_LicenseRequired402_ReturnsGracefully()
+    public async Task CheckAndUpdate_ServerReturns402_ReturnsGracefully()
     {
         var handler = new FakeHandler
         {

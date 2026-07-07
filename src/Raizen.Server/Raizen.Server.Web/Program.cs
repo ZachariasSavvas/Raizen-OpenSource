@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Raizen.Server.Core.Data;
-using Raizen.Server.Core.Licensing;
 using Raizen.Server.Core.Services;
 using Raizen.Server.Web.Auth;
 using Raizen.Server.Web.Services;
@@ -118,9 +117,6 @@ builder.Services.AddHttpContextAccessor();
 // ── Poll-response signing (reads the same key file as the API) ────────────────
 builder.Services.AddSingleton<IPollResponseSigner, PollResponseSigner>();
 
-// ── Licensing ─────────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<ILicenseService, LicenseService>();
-
 // ── Syslog / SIEM forwarding ──────────────────────────────────────────────────
 builder.Services.Configure<SyslogOptions>(builder.Configuration.GetSection(SyslogOptions.Section));
 builder.Services.AddSingleton<ISyslogSender, SyslogSender>();
@@ -145,7 +141,7 @@ builder.Services.AddScoped<IAuditExportService, AuditExportService>();
 builder.Services.AddSingleton<ILoginLockoutService, LoginLockoutService>();
 builder.Services.AddHostedService<ExpiryBackgroundService>();
 
-// ── Real-time approval toast notifications (Enterprise) ─────────────────────
+// ── Real-time approval toast notifications ───────────────────────────────────
 builder.Services.AddSingleton<IApprovalToastNotifier, ApprovalToastNotifier>();
 builder.Services.AddHostedService<PgNotifyListenerService>();
 

@@ -7,7 +7,6 @@ using Microsoft.Identity.Web;
 using Microsoft.OpenApi.Models;
 using Raizen.Server.Api.Auth;
 using Raizen.Server.Core.Data;
-using Raizen.Server.Core.Licensing;
 using Raizen.Server.Core.Services;
 using Serilog;
 
@@ -171,9 +170,6 @@ builder.Services.AddSingleton<IRateLimitCounterStore, MemoryCacheRateLimitCounte
 builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 builder.Services.AddSingleton<IProcessingStrategy, AsyncKeyLockProcessingStrategy>();
 builder.Services.AddInMemoryRateLimiting();
-
-// ── Licensing ─────────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<ILicenseService, LicenseService>();
 
 // ── Poll-response signing (MITM protection) ───────────────────────────────────
 builder.Services.AddSingleton<IPollResponseSigner, PollResponseSigner>();

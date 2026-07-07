@@ -3,8 +3,6 @@
 @inject IActionCatalogService Catalog
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthState
-@inject ILicenseService LicenseSvc
-@using Raizen.Server.Core.Licensing
 
 <PageTitle>Action Catalog | Raizen</PageTitle>
 
@@ -60,8 +58,7 @@
                             Min. Approvers
                             <span class="text-muted" style="font-size:.78rem;font-weight:400"> (1 = standard, 2 = four-eyes)</span>
                         </label>
-                        <InputNumber class="form-control" @bind-Value="_editing.MinApprovers" min="1" max="10"
-                                     disabled="@(!_canMultiApprove)" />
+                        <InputNumber class="form-control" @bind-Value="_editing.MinApprovers" min="1" max="10" />
                     </div>
                     <div class="col-md-4 d-flex align-items-center gap-3 pt-3">
                         <div class="form-check">
@@ -174,10 +171,9 @@ else
 }
 
 @code {
-    private bool _canMultiApprove;
     private List<ActionDefinitionDto>? _actions;
     private bool _showForm;
-    private UpsertActionDefinitionDto? _editing;
+    private UpsertActionDefinitionDto _editing = new();
     private Guid? _editingId;
     private string? _formError;
     private KeyValuePair<Guid, string>? _deleteError;
@@ -185,7 +181,6 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _canMultiApprove = LicenseSvc.HasFeature(LicenseFeature.MultiApprover);
         var state = await AuthState.GetAuthenticationStateAsync();
         _actorUpn = state.User.Identity?.Name ?? "admin";
         await Reload();
@@ -218,9 +213,9 @@ else
         try
         {
             if (_editingId is null)
-                await Catalog.CreateAsync(_editing!, _actorUpn);
+                await Catalog.CreateAsync(_editing, _actorUpn);
             else
-                await Catalog.UpdateAsync(_editingId.Value, _editing!, _actorUpn);
+                await Catalog.UpdateAsync(_editingId.Value, _editing, _actorUpn);
             _showForm = false;
             await Reload();
         }

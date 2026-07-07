@@ -1,16 +1,14 @@
 @using Microsoft.JSInterop
-@using Raizen.Server.Core.Licensing
 @using Raizen.Server.Core.Services
 @using Raizen.Shared.Enums
 @inject IApprovalToastNotifier Notifier
-@inject ILicenseService LicenseSvc
 @inject IRequestService RequestSvc
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IDisposable
 
-@if (_enabled && _toasts.Count > 0)
+@if (_toasts.Count > 0)
 {
     <div class="rz-toast-container">
         @if (_overflowCount > 0)
@@ -75,7 +73,6 @@
 @code {
     private const int MaxVisible = 5;
 
-    private bool _enabled;
     private string? _currentUserUpn;
     private readonly List<ToastItem> _toasts = new();
     private List<ToastItem> _visibleToasts = new();
@@ -88,9 +85,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _enabled = LicenseSvc.HasFeature(LicenseFeature.RealtimeToasts);
-        if (!_enabled) return;
-
         var state = await AuthState.GetAuthenticationStateAsync();
         _currentUserUpn = state.User.Identity?.Name;
 
@@ -99,7 +93,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && _enabled)
+        if (firstRender)
         {
             _hasDoneFirstRender = true;
             // Request browser notification permission
@@ -112,7 +106,7 @@
             await CatchUpAsync();
             _hasCaughtUp = true;
         }
-        else if (!firstRender && _hasDoneFirstRender && _enabled && !_hasCaughtUp)
+        else if (!firstRender && _hasDoneFirstRender && !_hasCaughtUp)
         {
             // Circuit reconnected after disconnect: catch up on missed pending requests
             await CatchUpAsync();

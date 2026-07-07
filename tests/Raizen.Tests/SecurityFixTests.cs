@@ -42,7 +42,7 @@ public sealed class SecurityFixTests : IDisposable
 
         var syslog = new NullSyslogSender();
         _audit = new AuditService(new TestDbContextFactory(_dbOpts), syslog, cfg);
-        var catalog = new ActionCatalogService(new TestDbContextFactory(_dbOpts), _audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(new TestDbContextFactory(_dbOpts), _audit);
         var notifications = new StubNotificationService();
         var autoApproval = new StubAutoApprovalService();
 

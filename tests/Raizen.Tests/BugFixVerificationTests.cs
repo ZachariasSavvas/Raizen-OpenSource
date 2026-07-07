@@ -169,7 +169,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
         var svc = new RequestService(factory, audit, catalog,
             new StubNotificationService(), new StubAutoApprovalService(), cfg);
 
@@ -221,7 +221,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
         var svc = new RequestService(factory, audit, catalog,
             new StubNotificationService(), new StubAutoApprovalService(), cfg);
 
@@ -440,7 +440,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         var dto = new UpsertActionDefinitionDto
         {
@@ -463,7 +463,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         var dto = new UpsertActionDefinitionDto
         {
@@ -493,7 +493,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         var dto = new UpsertActionDefinitionDto
         {
@@ -528,7 +528,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         var dto = new UpsertActionDefinitionDto
         {
@@ -550,7 +550,7 @@ public sealed class BugFixVerificationTests
         var cfg = CreateConfig();
         var syslog = new NullSyslogSender();
         var audit = new AuditService(factory, syslog, cfg);
-        var catalog = new ActionCatalogService(factory, audit, new AllFeaturesLicenseStub());
+        var catalog = new ActionCatalogService(factory, audit);
 
         // Create with valid type first
         var createDto = new UpsertActionDefinitionDto
