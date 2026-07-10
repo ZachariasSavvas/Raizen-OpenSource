@@ -7,6 +7,34 @@ public static class ConfigWriter
     private static readonly JsonSerializerOptions _opts =
         new() { WriteIndented = true };
 
+    public static void LoadExistingSecrets(WizardState state)
+    {
+        var apiPath = Path.Combine(state.ApiInstallDir, "appsettings.Production.json");
+        var webPath = Path.Combine(state.WebInstallDir, "appsettings.Production.json");
+
+        var apiAuditKey = ReadSecurityValue(apiPath, "AuditHmacKey");
+        var webAuditKey = ReadSecurityValue(webPath, "AuditHmacKey");
+        var existingAuditKeys = new[] { apiAuditKey, webAuditKey }
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (existingAuditKeys.Count > 1)
+        {
+            state.ExistingConfigError =
+                "The installed API and Web AuditHmacKey values differ. Reconcile the two " +
+                "appsettings.Production.json files before rerunning setup.";
+        }
+        else if (existingAuditKeys.Count == 1)
+        {
+            state.AuditHmacKey = existingAuditKeys[0]!;
+        }
+
+        var encryptionKey = ReadSecurityValue(webPath, "EncryptionKey");
+        if (!string.IsNullOrWhiteSpace(encryptionKey))
+            state.EncryptionKey = encryptionKey;
+    }
+
     public static void WriteApiConfig(WizardState s)
     {
         var config = new
@@ -116,4 +144,21 @@ public static class ConfigWriter
 
     private static void Write(string path, object config) =>
         File.WriteAllText(path, JsonSerializer.Serialize(config, _opts));
+
+    private static string? ReadSecurityValue(string path, string property)
+    {
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            return document.RootElement.TryGetProperty("Security", out var security)
+                && security.TryGetProperty(property, out var value)
+                ? value.GetString()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

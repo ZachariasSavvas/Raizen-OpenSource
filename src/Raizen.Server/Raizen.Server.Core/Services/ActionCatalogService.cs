@@ -49,6 +49,13 @@ public sealed class ActionCatalogService(IDbContextFactory<RaizenDbContext> dbFa
         ActionType.RunAsAdmin,
         ActionType.SetNetworkConfiguration,
         ActionType.SetEnvironmentVariable,
+        ActionType.UninstallMsi,
+        ActionType.DeleteFile,
+        ActionType.CreateLocalUser,
+        ActionType.DisableLocalUser,
+        ActionType.AddTrustedCertificate,
+        ActionType.SetFirewallRule,
+        ActionType.CollectEventLogs,
     ];
 
     public async Task<ActionDefinition?> GetEnabledAsync(Guid id, CancellationToken ct = default)

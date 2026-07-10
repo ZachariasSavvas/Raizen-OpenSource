@@ -57,8 +57,7 @@ CREATE TABLE IF NOT EXISTS elevation_requests (
     "ReviewerUpn"           VARCHAR(320),
     "ReviewerNote"          VARCHAR(1000),
     "ExecutionResult"       VARCHAR(4000),
-    "ExecutionError"        VARCHAR(4000),
-    "xmin"                  xid           NOT NULL  -- PostgreSQL row version for optimistic concurrency
+    "ExecutionError"        VARCHAR(4000)
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_status       ON elevation_requests ("Status");
@@ -83,6 +82,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_actor    ON audit_logs ("ActorUpn");
 CREATE INDEX IF NOT EXISTS idx_audit_event    ON audit_logs ("Event");
 CREATE INDEX IF NOT EXISTS idx_audit_request  ON audit_logs ("RequestId");
 
--- Audit log is append-only: revoke DELETE and UPDATE from the app user
--- (run as superuser once, substituting your actual app role)
--- REVOKE DELETE, UPDATE ON audit_logs FROM raizen_app;
+CREATE OR REPLACE FUNCTION raizen_guard_audit_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'audit_logs is append-only';
+    END IF;
+    IF current_setting('raizen.audit_repair', true) IS DISTINCT FROM 'on' THEN
+        RAISE EXCEPTION 'audit_logs may only be updated by the audited repair workflow';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS "TR_audit_logs_append_only" ON audit_logs;
+CREATE TRIGGER "TR_audit_logs_append_only"
+    BEFORE UPDATE OR DELETE ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION raizen_guard_audit_mutation();
+
+-- The trigger blocks ordinary updates and all deletes. Remove DELETE from the
+-- standard runtime role too when that role already exists.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'raizen') THEN
+        REVOKE DELETE ON audit_logs FROM raizen;
+    END IF;
+END $$;

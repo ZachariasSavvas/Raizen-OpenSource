@@ -18,13 +18,18 @@
             </span>
         </p>
     </div>
-    @if (_outdatedCount > 0)
-    {
-        <button class="rz-btn rz-btn-primary" @onclick="PushAllOutdated" disabled="@_busy">
-            @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
-            <i class="bi bi-cloud-download me-1"></i>Push Update to All Outdated (@_outdatedCount)
-        </button>
-    }
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="rz-btn rz-btn-ghost" href="/export/endpoints/diagnostics" title="Download endpoint health and recent activity diagnostics">
+            <i class="bi bi-file-earmark-zip me-1"></i>Diagnostics Bundle
+        </a>
+        @if (_outdatedCount > 0)
+        {
+            <button class="rz-btn rz-btn-primary" @onclick="PushAllOutdated" disabled="@_busy">
+                @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <i class="bi bi-cloud-download me-1"></i>Push Update to All Outdated (@_outdatedCount)
+            </button>
+        }
+    </div>
 </div>
 
 @if (_pushError is not null)
@@ -118,7 +123,7 @@ else
                         <th style="width:160px">Last Seen</th>
                         <th style="width:160px">Registered</th>
                         <th style="width:110px">Enabled</th>
-                        <th style="width:100px"></th>
+                        <th style="width:180px"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -198,6 +203,29 @@ else
                                             Update: @FormatUpdateStatus(ep.LastUpdateStatus)
                                         </span>
                                     }
+                                    @if (ep.Health is { } health)
+                                    {
+                                        @if (health.SystemDriveFreePercent is < 15)
+                                        {
+                                            <span class="text-warning"><i class="bi bi-device-hdd me-1"></i>@health.SystemDriveFreePercent.Value.ToString("F0")% disk free</span>
+                                        }
+                                        @if (health.MemoryUsedPercent is > 90)
+                                        {
+                                            <span class="text-warning"><i class="bi bi-memory me-1"></i>@health.MemoryUsedPercent.Value.ToString("F0")% memory</span>
+                                        }
+                                        @if (health.DefenderEnabled == false)
+                                        {
+                                            <span class="text-danger"><i class="bi bi-shield-x me-1"></i>Defender disabled</span>
+                                        }
+                                        @if (health.BitLockerProtected == false)
+                                        {
+                                            <span class="text-warning"><i class="bi bi-unlock me-1"></i>BitLocker off</span>
+                                        }
+                                        @if (health.PendingReboot)
+                                        {
+                                            <span class="text-muted"><i class="bi bi-arrow-clockwise me-1"></i>Reboot pending</span>
+                                        }
+                                    }
                                 </div>
                             </td>
                             <td style="font-size:.85rem" title="@(ep.LastSeenAt?.ToString("yyyy-MM-dd HH:mm:ss") + " UTC")">
@@ -240,6 +268,10 @@ else
                                         disabled="@_busy" title="Rotate API key">
                                     <i class="bi bi-arrow-repeat"></i> Rotate Key
                                 </button>
+                                <a class="rz-btn rz-btn-ghost rz-btn-sm" href="@($"/export/endpoints/{ep.Id}/diagnostics")"
+                                   title="Download diagnostics for this endpoint">
+                                    <i class="bi bi-file-earmark-zip"></i> Diagnostics
+                                </a>
                                 @if (!ep.UpdatePending && (IsOutdated(ep) || _latestVersion is null))
                                 {
                                     <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => PushUpdate(ep)"
@@ -348,7 +380,14 @@ else
     private static bool HasHealthIssue(EndpointRegistrationDto ep) =>
         !ep.PollSigningConfigured ||
         !string.IsNullOrWhiteSpace(ep.LastPollError) ||
-        !string.IsNullOrWhiteSpace(ep.LastUpdateError);
+        !string.IsNullOrWhiteSpace(ep.LastUpdateError) ||
+        ep.Health is { } health &&
+        (health.SystemDriveFreePercent is < 15 ||
+         health.MemoryUsedPercent is > 90 ||
+         health.DefenderEnabled == false ||
+         health.BitLockerProtected == false ||
+         health.PendingReboot ||
+         !string.IsNullOrWhiteSpace(health.CollectionError));
 
     private static string FormatUpdateStatus(string? status) =>
         string.IsNullOrWhiteSpace(status)

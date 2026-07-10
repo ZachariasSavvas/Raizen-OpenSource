@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raizen Tray UI Preview</title>
+  <style>
+    :root {
+      --surface: #ffffff;
+      --subtle: #f8fafc;
+      --page: #f3f4f6;
+      --border: #d5dae2;
+      --border-strong: #b8c0cc;
+      --text: #18181b;
+      --muted: #52525b;
+      --primary: #111827;
+      --primary-hover: #27272a;
+      --success: #166534;
+      --danger: #b91c1c;
+      --warning: #92400e;
+      --focus: #2563eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    .preview {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .preview-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+    }
+
+    .brand {
+      min-width: 220px;
+    }
+
+    .brand-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .brand-subtitle {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 5px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    .tab:hover {
+      background: #e9edf3;
+      color: var(--text);
+    }
+
+    .tab.active {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .stage {
+      min-height: 640px;
+      display: grid;
+      place-items: center;
+      padding: 22px 0 34px;
+    }
+
+    .view {
+      display: none;
+      width: 100%;
+    }
+
+    .view.active {
+      display: grid;
+      place-items: center;
+    }
+
+    .window {
+      width: min(100%, 980px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
+      overflow: hidden;
+    }
+
+    .window.small {
+      width: 430px;
+    }
+
+    .titlebar {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      background: #fbfcfd;
+    }
+
+    .titlebar-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 700;
+    }
+
+    .shield {
+      width: 22px;
+      height: 22px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--surface);
+    }
+
+    .window-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+    }
+
+    .window-action {
+      width: 12px;
+      height: 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .status-shell {
+      display: grid;
+      grid-template-columns: 318px 1fr;
+      min-height: 560px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: var(--subtle);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .sidebar-head {
+      padding: 15px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .search {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0 10px;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .search:focus,
+    textarea:focus,
+    input:focus,
+    select:focus {
+      outline: 2px solid rgba(37, 99, 235, 0.18);
+      border-color: var(--focus);
+    }
+
+    .request-list {
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      overflow: auto;
+    }
+
+    .request-row {
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 10px;
+      background: transparent;
+      display: grid;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .request-row:hover {
+      background: #eef2f7;
+    }
+
+    .request-row.active {
+      background: var(--surface);
+      border-color: var(--border);
+    }
+
+    .row-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .row-title {
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      padding: 0 7px;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+      background: var(--surface);
+      color: var(--muted);
+    }
+
+    .badge.denied {
+      border-color: #f3c1c1;
+      color: var(--danger);
+      background: #fff7f7;
+    }
+
+    .badge.pending {
+      border-color: #e5d29d;
+      color: var(--warning);
+      background: #fffaf0;
+    }
+
+    .badge.approved,
+    .badge.done {
+      border-color: #b7dfc2;
+      color: var(--success);
+      background: #f3fbf5;
+    }
+
+    .detail {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail-head {
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .detail-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .detail-copy {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .detail-body {
+      padding: 18px 22px;
+      display: grid;
+      gap: 16px;
+      overflow: auto;
+    }
+
+    .section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .reason-box {
+      border: 1px solid #efb3b3;
+      background: #fff7f7;
+      border-radius: 6px;
+      padding: 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .reason-label {
+      color: var(--danger);
+      font-weight: 750;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .reason-copy {
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .kv {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      background: var(--subtle);
+      min-width: 0;
+    }
+
+    .kv-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .kv-value {
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .conversation {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .message {
+      display: grid;
+      grid-template-columns: 108px 1fr;
+      gap: 12px;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .message:last-child {
+      border-bottom: 0;
+    }
+
+    .message-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .message-author {
+      color: var(--text);
+      font-weight: 750;
+    }
+
+    .message-body {
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 9px;
+      align-items: end;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 74px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 9px 10px;
+      color: var(--text);
+      background: var(--surface);
+    }
+
+    .button {
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0 13px;
+      background: var(--subtle);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .button:hover {
+      background: #eef2f7;
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .button.primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .button.danger {
+      border-color: #efb3b3;
+      background: #fff7f7;
+      color: var(--danger);
+    }
+
+    .form-layout {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      min-height: 560px;
+    }
+
+    .action-picker {
+      background: var(--subtle);
+      border-right: 1px solid var(--border);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .action-item {
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 10px;
+      background: transparent;
+      display: grid;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .action-item.active {
+      background: var(--surface);
+      border-color: var(--border);
+    }
+
+    .action-name {
+      font-weight: 750;
+    }
+
+    .action-desc {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .form-main {
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .form-head {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+    }
+
+    .form-title {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .form-note {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .label {
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    input,
+    select {
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0 10px;
+      color: var(--text);
+      background: var(--surface);
+      min-width: 0;
+    }
+
+    .form-footer {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 9px;
+    }
+
+    .popup-body {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .popup-status {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .status-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 1px solid #efb3b3;
+      display: grid;
+      place-items: center;
+      color: var(--danger);
+      background: #fff7f7;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .popup-title {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .popup-copy {
+      margin: 4px 0 0;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .popup-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 9px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+
+    .menu-wrap {
+      display: grid;
+      gap: 14px;
+      justify-items: center;
+    }
+
+    .desktop-note {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tray-menu {
+      width: 296px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+      padding: 6px;
+    }
+
+    .menu-header {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 8px 10px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 5px;
+    }
+
+    .menu-title {
+      font-weight: 750;
+    }
+
+    .menu-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 1px;
+    }
+
+    .menu-item {
+      min-height: 34px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 8px;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .menu-item:hover {
+      background: #eef2f7;
+    }
+
+    .menu-icon {
+      width: 22px;
+      height: 22px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--subtle);
+      flex: 0 0 auto;
+    }
+
+    .menu-text {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .menu-label {
+      font-weight: 650;
+    }
+
+    .menu-desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .menu-separator {
+      height: 1px;
+      background: var(--border);
+      margin: 5px 2px;
+    }
+
+    .kbd {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      padding: 1px 5px 2px;
+      font-size: 11px;
+      background: var(--subtle);
+    }
+
+    @media (max-width: 860px) {
+      .preview-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .tabs {
+        justify-content: flex-start;
+      }
+
+      .status-shell,
+      .form-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar,
+      .action-picker {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .kv-grid,
+      .field-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .message {
+        grid-template-columns: 1fr;
+      }
+
+      .composer {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview">
+    <header class="preview-bar">
+      <div class="brand">
+        <h1 class="brand-title">Raizen Tray UI Preview</h1>
+        <p class="brand-subtitle">Clickable prototype for the endpoint tray refresh.</p>
+      </div>
+      <nav class="tabs" aria-label="Preview screens">
+        <button class="tab active" type="button" data-view="request-center">Request Center</button>
+        <button class="tab" type="button" data-view="new-request">New Request</button>
+        <button class="tab" type="button" data-view="denied-popup">Denied Popup</button>
+        <button class="tab" type="button" data-view="tray-menu">Tray Menu</button>
+      </nav>
+    </header>
+
+    <main class="stage">
+      <section id="request-center" class="view active" aria-label="Request center preview">
+        <div class="window">
+          <div class="titlebar">
+            <div class="titlebar-title"><span class="shield">R</span> My Requests</div>
+            <div class="window-actions" aria-hidden="true">
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+            </div>
+          </div>
+
+          <div class="status-shell">
+            <aside class="sidebar">
+              <div class="sidebar-head">
+                <input class="search" value="" placeholder="Search requests, status, or action">
+              </div>
+              <div class="request-list">
+                <article class="request-row active">
+                  <div class="row-top">
+                    <div class="row-title">Run as Administrator</div>
+                    <span class="badge denied">Denied</span>
+                  </div>
+                  <div class="row-meta">Submitted 10:24 AM by this endpoint</div>
+                  <div class="row-meta">Reason available from approver</div>
+                </article>
+                <article class="request-row">
+                  <div class="row-top">
+                    <div class="row-title">Install MSI Package</div>
+                    <span class="badge pending">Pending</span>
+                  </div>
+                  <div class="row-meta">Waiting for Security Team approval</div>
+                  <div class="row-meta">Expires today at 4:32 PM</div>
+                </article>
+                <article class="request-row">
+                  <div class="row-top">
+                    <div class="row-title">Restart Windows Service</div>
+                    <span class="badge approved">Approved</span>
+                  </div>
+                  <div class="row-meta">Approved 18 minutes ago</div>
+                  <div class="row-meta">Ready to execute on this machine</div>
+                </article>
+                <article class="request-row">
+                  <div class="row-top">
+                    <div class="row-title">Create Firewall Rule</div>
+                    <span class="badge done">Completed</span>
+                  </div>
+                  <div class="row-meta">Completed yesterday at 3:18 PM</div>
+                  <div class="row-meta">Audit event recorded</div>
+                </article>
+              </div>
+            </aside>
+
+            <section class="detail">
+              <div class="detail-head">
+                <div>
+                  <h2 class="detail-title">Run as Administrator</h2>
+                  <p class="detail-copy">Request ID 7b89c9e2. Submitted from DESKTOP-1048 for C:\Tools\VendorSetup.exe.</p>
+                </div>
+                <span class="badge denied">Denied</span>
+              </div>
+
+              <div class="detail-body">
+                <section class="reason-box" aria-label="Denial reason">
+                  <div class="reason-label">Why this was denied</div>
+                  <p class="reason-copy">The requested installer is not on the approved software list. Please attach the vendor hash and business owner approval, then resubmit.</p>
+                </section>
+
+                <section class="section">
+                  <h3 class="section-title">Request Summary</h3>
+                  <div class="kv-grid">
+                    <div class="kv">
+                      <div class="kv-label">Requester</div>
+                      <div class="kv-value">jane.lee</div>
+                    </div>
+                    <div class="kv">
+                      <div class="kv-label">Approver</div>
+                      <div class="kv-value">Security Team</div>
+                    </div>
+                    <div class="kv">
+                      <div class="kv-label">Ticket</div>
+                      <div class="kv-value">CHG-18422</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <h3 class="section-title">Comments</h3>
+                  <div class="conversation">
+                    <article class="message">
+                      <div class="message-meta">
+                        <div class="message-author">Requester</div>
+                        <div>10:24 AM</div>
+                      </div>
+                      <p class="message-body">Need to install the vendor diagnostic tool to troubleshoot the scanner issue for Finance.</p>
+                    </article>
+                    <article class="message">
+                      <div class="message-meta">
+                        <div class="message-author">Approver</div>
+                        <div>10:31 AM</div>
+                      </div>
+                      <p class="message-body">Denied for now. Send the vendor hash and business owner approval so we can verify the package safely.</p>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="section">
+                  <h3 class="section-title">Reply</h3>
+                  <div class="composer">
+                    <textarea placeholder="Add a comment for the approver..."></textarea>
+                    <button class="button primary" type="button">Send</button>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="new-request" class="view" aria-label="New request preview">
+        <div class="window">
+          <div class="titlebar">
+            <div class="titlebar-title"><span class="shield">R</span> Request Elevation</div>
+            <div class="window-actions" aria-hidden="true">
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+            </div>
+          </div>
+
+          <div class="form-layout">
+            <aside class="action-picker">
+              <input class="search" placeholder="Search actions" value="">
+              <div class="action-item active">
+                <div class="action-name">Run as Administrator</div>
+                <div class="action-desc">Run a selected executable with temporary elevation.</div>
+              </div>
+              <div class="action-item">
+                <div class="action-name">Install MSI Package</div>
+                <div class="action-desc">Install an approved MSI with audit logging.</div>
+              </div>
+              <div class="action-item">
+                <div class="action-name">Manage Windows Service</div>
+                <div class="action-desc">Restart, stop, or start a specific service.</div>
+              </div>
+              <div class="action-item">
+                <div class="action-name">File or Folder Permissions</div>
+                <div class="action-desc">Grant controlled access to a local path.</div>
+              </div>
+              <div class="action-item">
+                <div class="action-name">Firewall Rule</div>
+                <div class="action-desc">Create or remove an endpoint firewall rule.</div>
+              </div>
+            </aside>
+
+            <section class="form-main">
+              <div class="form-head">
+                <h2 class="form-title">Run as Administrator</h2>
+                <p class="form-note">Choose the file, explain why elevation is needed, and include a ticket if one exists.</p>
+              </div>
+
+              <div class="field-grid">
+                <label class="field full">
+                  <span class="label">Executable path</span>
+                  <input value="C:\Tools\VendorSetup.exe">
+                  <span class="hint">Pre-filled when launched from the Windows right-click menu.</span>
+                </label>
+
+                <label class="field">
+                  <span class="label">Allowed duration</span>
+                  <select>
+                    <option>One execution only</option>
+                    <option>15 minutes</option>
+                    <option>30 minutes</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="label">Ticket or change reference</span>
+                  <input value="CHG-18422">
+                </label>
+
+                <label class="field full">
+                  <span class="label">Justification</span>
+                  <textarea>Need to install the vendor diagnostic tool to troubleshoot the scanner issue for Finance.</textarea>
+                </label>
+              </div>
+
+              <div class="form-footer">
+                <button class="button" type="button">Cancel</button>
+                <button class="button primary" type="button">Submit Request</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="denied-popup" class="view" aria-label="Denied popup preview">
+        <div class="window small">
+          <div class="titlebar">
+            <div class="titlebar-title"><span class="shield">R</span> Raizen Security Agent</div>
+            <div class="window-actions" aria-hidden="true">
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+              <span class="window-action"></span>
+            </div>
+          </div>
+
+          <div class="popup-body">
+            <div class="popup-status">
+              <div class="status-mark">!</div>
+              <div>
+                <h2 class="popup-title">Request denied</h2>
+                <p class="popup-copy">Run as Administrator was reviewed by Security Team.</p>
+              </div>
+            </div>
+
+            <section class="reason-box">
+              <div class="reason-label">Why this was denied</div>
+              <p class="reason-copy">The requested installer is not on the approved software list. Please attach the vendor hash and business owner approval, then resubmit.</p>
+            </section>
+
+            <label class="field">
+              <span class="label">Reply to approver</span>
+              <textarea placeholder="Ask a follow-up or add the missing details..."></textarea>
+            </label>
+
+            <div class="popup-actions">
+              <button class="button" type="button">Open Request</button>
+              <button class="button primary" type="button">Send Reply</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tray-menu" class="view" aria-label="Tray menu preview">
+        <div class="menu-wrap">
+          <div class="desktop-note">Right-click menu concept with the useful actions restored.</div>
+          <div class="tray-menu">
+            <div class="menu-header">
+              <span class="shield">R</span>
+              <div>
+                <div class="menu-title">Raizen Security Agent</div>
+                <div class="menu-subtitle">Connected to https://localhost:5001</div>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <span class="menu-icon">+</span>
+              <div class="menu-text">
+                <div class="menu-label">New Request</div>
+                <div class="menu-desc">Browse all available elevation actions</div>
+              </div>
+              <span class="kbd">Enter</span>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">L</span>
+              <div class="menu-text">
+                <div class="menu-label">My Requests</div>
+                <div class="menu-desc">View pending, denied, approved, and completed requests</div>
+              </div>
+            </div>
+
+            <div class="menu-separator"></div>
+
+            <div class="menu-item">
+              <span class="menu-icon">A</span>
+              <div class="menu-text">
+                <div class="menu-label">Run as Administrator</div>
+                <div class="menu-desc">Request one-time elevation for an app</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">F</span>
+              <div class="menu-text">
+                <div class="menu-label">File or Folder Permissions</div>
+                <div class="menu-desc">Request controlled local access</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">S</span>
+              <div class="menu-text">
+                <div class="menu-label">Manage Windows Service</div>
+                <div class="menu-desc">Start, stop, or restart a service</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">N</span>
+              <div class="menu-text">
+                <div class="menu-label">Network Change</div>
+                <div class="menu-desc">Request approved network configuration changes</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">E</span>
+              <div class="menu-text">
+                <div class="menu-label">Environment Variable</div>
+                <div class="menu-desc">Set a scoped system variable</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">W</span>
+              <div class="menu-text">
+                <div class="menu-label">Firewall Rule</div>
+                <div class="menu-desc">Add or remove a local firewall rule</div>
+              </div>
+            </div>
+
+            <div class="menu-separator"></div>
+
+            <div class="menu-item">
+              <span class="menu-icon">i</span>
+              <div class="menu-text">
+                <div class="menu-label">Connection Status</div>
+                <div class="menu-desc">Endpoint is online and policy is current</div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="menu-icon">X</span>
+              <div class="menu-text">
+                <div class="menu-label">Exit</div>
+                <div class="menu-desc">Close the tray application</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = Array.from(document.querySelectorAll(".tab"));
+    const views = Array.from(document.querySelectorAll(".view"));
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const target = tab.dataset.view;
+        tabs.forEach((item) => item.classList.toggle("active", item === tab));
+        views.forEach((view) => view.classList.toggle("active", view.id === target));
+      });
+    });
+  </script>
+</body>
+</html>

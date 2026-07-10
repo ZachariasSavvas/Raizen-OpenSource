@@ -12,7 +12,8 @@ namespace Raizen.Server.Api.Controllers;
 [Route("api/v1/endpoints")]
 public sealed class EndpointsController(
     IEndpointService endpoints,
-    IRegistrationTokenService tokens) : ControllerBase
+    IRegistrationTokenService tokens,
+    IMonitoringService monitoring) : ControllerBase
 {
     /// <summary>
     /// Called once during endpoint agent installation.
@@ -42,6 +43,7 @@ public sealed class EndpointsController(
         if (!Guid.TryParse(User.FindFirstValue("registration_id"), out var registrationId))
             return Unauthorized(new { error = "Missing registration_id claim" });
         await endpoints.HeartbeatAsync(registrationId, dto, ct);
+        await monitoring.EvaluateEndpointAsync(registrationId, ct);
         return NoContent();
     }
 

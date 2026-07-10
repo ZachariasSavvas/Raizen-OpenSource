@@ -6,7 +6,7 @@
 <PageTitle>Notifications | Raizen</PageTitle>
 
 <h1 class="rz-page-title">Notifications</h1>
-<p class="rz-page-subtitle">Configure email alerts for elevation request events.</p>
+<p class="rz-page-subtitle">Configure SMTP and default recipients for request and monitoring alerts.</p>
 
 @if (_loading)
 {
@@ -87,7 +87,7 @@ else
         <div class="rz-card-header"><i class="bi bi-people"></i> Recipients</div>
         <div class="rz-card-body">
             <p class="text-muted mb-3" style="font-size:.85rem">
-                All notification emails are sent to every address in this list.
+                Request notifications use this list. Monitoring rules can use it or specify their own recipients.
             </p>
 
             @if (_recipients.Count > 0)
@@ -157,6 +157,13 @@ else
                         <span class="text-muted ms-1" style="font-size:.82rem">Sent when an approver rejects the request</span>
                     </label>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="chkCompleted" @bind="_s.NotifyOnCompleted" />
+                    <label class="form-check-label" for="chkCompleted">
+                        <strong>Request completed</strong>
+                        <span class="text-muted ms-1" style="font-size:.82rem">Sent when endpoint execution succeeds or fails</span>
+                    </label>
+                </div>
             </div>
         </div>
     </div>
@@ -174,19 +181,19 @@ else
 
         @if (_saveSuccess)
         {
-            <span class="text-success fw-semibold" style="font-size:.875rem">
+            <span class="text-success fw-semibold" style="font-size:.875rem" role="status">
                 <i class="bi bi-check-circle me-1"></i>Settings saved.
             </span>
         }
         @if (_saveError != null)
         {
-            <span class="text-danger fw-semibold" style="font-size:.875rem">
+            <span class="text-danger fw-semibold" style="font-size:.875rem" role="alert">
                 <i class="bi bi-exclamation-triangle me-1"></i>@_saveError
             </span>
         }
         @if (_testResult != null)
         {
-            <span class="@(_testOk ? "text-success" : "text-danger") fw-semibold" style="font-size:.875rem">
+            <span class="@(_testOk ? "text-success" : "text-danger") fw-semibold" style="font-size:.875rem" role="@(_testOk ? "status" : "alert")">
                 <i class="bi @(_testOk ? "bi-check-circle" : "bi-x-circle") me-1"></i>@_testResult
             </span>
         }

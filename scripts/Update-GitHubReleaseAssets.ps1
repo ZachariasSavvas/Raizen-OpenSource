@@ -1,18 +1,19 @@
 param(
     [string]$Token,
-    [string]$Version = "1.5.2"
+    [string]$Version = "1.5.8",
+    [string]$Repository = "ZachariasSavvas/Raizen-OpenSource"
 )
 
 $headers = @{ Authorization = "token $Token"; Accept = 'application/vnd.github+json' }
 
 # Get the release
-$release = Invoke-RestMethod -Uri "https://api.github.com/repos/ZachariasSavvas/Raizen/releases/tags/v$Version" -Headers $headers
+$release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/tags/v$Version" -Headers $headers
 Write-Host "Release: $($release.name) (ID $($release.id))"
 
 # Delete existing assets
 foreach ($asset in $release.assets) {
     Write-Host "Deleting existing asset: $($asset.name)..."
-    Invoke-RestMethod -Uri "https://api.github.com/repos/ZachariasSavvas/Raizen/releases/assets/$($asset.id)" -Method Delete -Headers $headers
+    Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/assets/$($asset.id)" -Method Delete -Headers $headers
 }
 
 $uploadBase = $release.upload_url -replace '\{.*\}', ''

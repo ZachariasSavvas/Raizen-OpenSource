@@ -33,6 +33,7 @@ public sealed class NotificationSettings
     public bool NotifyOnSubmit   { get; set; } = true;
     public bool NotifyOnApproved { get; set; } = true;
     public bool NotifyOnDenied   { get; set; } = true;
+    public bool NotifyOnCompleted { get; set; } = true;
 
     // ── Audit ─────────────────────────────────────────────────────────────────
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

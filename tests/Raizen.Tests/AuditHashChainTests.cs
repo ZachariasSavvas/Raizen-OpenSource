@@ -68,6 +68,64 @@ public sealed class AuditHashChainTests : IDisposable
     }
 
     [Fact]
+    public void RequireAuditHmacKey_Missing_ThrowsInsteadOfGenerating()
+    {
+        var cfg = new ConfigurationBuilder().Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => DatabaseBootstrapper.RequireAuditHmacKey(cfg));
+
+        Assert.Contains("not configured", ex.Message);
+    }
+
+    [Fact]
+    public void RequireAuditHmacKey_EqualToEncryptionKey_Throws()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AuditHmacKey"] = "same-key",
+                ["Security:EncryptionKey"] = "same-key",
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => DatabaseBootstrapper.RequireAuditHmacKey(cfg));
+
+        Assert.Contains("must not equal", ex.Message);
+    }
+
+    [Fact]
+    public void RequireAuditHmacKey_Placeholder_Throws()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AuditHmacKey"] = "CHANGE_ME",
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => DatabaseBootstrapper.RequireAuditHmacKey(cfg));
+
+        Assert.Contains("placeholder", ex.Message);
+    }
+
+    [Fact]
+    public void RequireAuditHmacKey_DedicatedKey_ReturnsConfiguredValue()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AuditHmacKey"] = "audit-key",
+                ["Security:EncryptionKey"] = "encryption-key",
+            })
+            .Build();
+
+        Assert.Equal("audit-key", DatabaseBootstrapper.RequireAuditHmacKey(cfg));
+    }
+
+    [Fact]
     public async Task VerifyChain_EmptyDb_ReturnsZeroTotal()
     {
         var (total, invalid) = await _svc.VerifyChainAsync();

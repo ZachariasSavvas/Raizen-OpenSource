@@ -29,6 +29,7 @@ public sealed class EndpointRegistrationDto
     public string? LastUpdateStatus { get; set; }
     public string? LastUpdateError { get; set; }
     public DateTimeOffset? LastSuccessfulUpdateAt { get; set; }
+    public EndpointHealthSnapshotDto? Health { get; set; }
 }
 
 public sealed class RegisterEndpointDto
@@ -50,6 +51,45 @@ public sealed class EndpointHeartbeatDto
     public string? LastUpdateStatus { get; set; }
     public string? LastUpdateError { get; set; }
     public DateTimeOffset? LastSuccessfulUpdateAt { get; set; }
+    public EndpointHealthSnapshotDto? Health { get; set; }
+}
+
+public sealed class EndpointHealthSnapshotDto
+{
+    public DateTimeOffset CollectedAt { get; set; }
+    public long UptimeSeconds { get; set; }
+    public double? CpuLoadPercent { get; set; }
+    public double? MemoryUsedPercent { get; set; }
+    public double? SystemDriveFreePercent { get; set; }
+    public long? SystemDriveFreeBytes { get; set; }
+    public string? LoggedOnUser { get; set; }
+    public List<string> IpAddresses { get; set; } = [];
+    public bool PendingReboot { get; set; }
+    public bool? DefenderEnabled { get; set; }
+    public int? DefenderSignatureAgeDays { get; set; }
+    public bool? BitLockerProtected { get; set; }
+    public bool ProcessesCollected { get; set; }
+    public bool ServicesCollected { get; set; }
+    public List<EndpointProcessDto> Processes { get; set; } = [];
+    public List<EndpointServiceDto> Services { get; set; } = [];
+    public string? CollectionError { get; set; }
+}
+
+public sealed class EndpointProcessDto
+{
+    public int ProcessId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public long WorkingSetBytes { get; set; }
+    public double TotalProcessorTimeSeconds { get; set; }
+    public int SessionId { get; set; }
+}
+
+public sealed class EndpointServiceDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string StartMode { get; set; } = string.Empty;
 }
 
 public sealed class PushUpdateDto

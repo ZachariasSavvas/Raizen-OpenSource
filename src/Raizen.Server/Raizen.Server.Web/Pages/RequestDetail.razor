@@ -17,9 +17,12 @@
 }
 else
 {
-    <div class="mb-2">
+    <div class="mb-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <a class="rz-btn rz-btn-ghost rz-btn-sm" href="requests">
             <i class="bi bi-arrow-left"></i> Back to list
+        </a>
+        <a class="rz-btn rz-btn-ghost rz-btn-sm" href="@($"/export/requests/{_request.Id}/evidence")">
+            <i class="bi bi-file-earmark-zip"></i> Download Evidence
         </a>
     </div>
 
@@ -260,13 +263,20 @@ else
 
     @if (_request.ReviewerUpn is not null)
     {
-        <div class="rz-card">
+        <div class="rz-card" aria-labelledby="reviewDecisionTitle">
             <div class="rz-card-header">
-                <i class="bi bi-person-check text-secondary"></i> Review Decision
+                <i class="bi bi-person-check text-secondary"></i> <span id="reviewDecisionTitle">Review Decision</span>
             </div>
             <div class="rz-card-body" style="font-size:.9rem">
                 <span class="text-muted">Reviewed by</span> <strong>@_request.ReviewerUpn</strong>
-                @if (!string.IsNullOrEmpty(_request.ReviewerNote))
+                @if (_request.Status == RequestStatus.Denied)
+                {
+                    <div class="alert alert-danger mt-3 mb-0" role="status">
+                        <div class="fw-semibold mb-1">Why was this denied?</div>
+                        <div>@DenialReason(_request)</div>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(_request.ReviewerNote))
                 {
                     <p class="mt-2 mb-0 text-muted">@_request.ReviewerNote</p>
                 }
@@ -320,13 +330,17 @@ else
                         </div>
                         @if (!string.IsNullOrEmpty(_error))
                         {
-                            <div class="alert alert-danger py-2">@_error</div>
+                            <div class="alert alert-danger py-2" role="alert" aria-live="assertive">@_error</div>
                         }
                         <EditForm Model="_review" OnValidSubmit="Submit">
                             <DataAnnotationsValidator />
                             <div class="mb-3">
-                                <label class="form-label" style="font-size:.875rem">Note (optional)</label>
-                                <InputTextArea class="form-control" @bind-Value="_review.Note" rows="3" />
+                                <label class="form-label" style="font-size:.875rem" for="reviewNote">Note</label>
+                                <InputTextArea id="reviewNote" class="form-control" @bind-Value="_review.Note" rows="3"
+                                               maxlength="1000" aria-describedby="reviewNoteHelp" />
+                                <div id="reviewNoteHelp" class="form-text">
+                                    Add a reason when denying so the requester knows what to fix.
+                                </div>
                             </div>
                             <div class="d-flex gap-2">
                                 <button type="submit" class="rz-btn rz-btn-success" @onclick="() => _review.Approved = true">
@@ -343,10 +357,10 @@ else
         </AuthorizeView>
     }
 
-    <div class="rz-card">
+    <div class="rz-card" role="region" aria-labelledby="commentsTitle">
         <div class="rz-card-header">
-            <i class="bi bi-chat-dots text-secondary"></i> Comments
-            <span class="ms-1 badge bg-secondary" style="font-size:.7rem">@_comments.Count</span>
+            <i class="bi bi-chat-dots text-secondary"></i> <span id="commentsTitle">Comments</span>
+            <span class="ms-1 badge bg-secondary" style="font-size:.7rem" aria-live="polite">@_comments.Count</span>
         </div>
         <div class="rz-card-body">
             @if (_comments.Count == 0)
@@ -355,10 +369,10 @@ else
             }
             else
             {
-                <div class="d-flex flex-column gap-3 mb-4">
+                <div class="d-flex flex-column gap-3 mb-4" role="list">
                     @foreach (var c in _comments)
                     {
-                        <div style="display:flex;gap:10px;align-items:flex-start">
+                        <div style="display:flex;gap:10px;align-items:flex-start" role="listitem">
                             <div style="width:32px;height:32px;border-radius:50%;background:@(c.IsAdmin ? "#1d4ed8" : "#6b7280");display:flex;align-items:center;justify-content:center;flex-shrink:0">
                                 <i class="bi @(c.IsAdmin ? "bi-shield-fill" : "bi-person-fill")" style="color:white;font-size:.75rem"></i>
                             </div>
@@ -380,11 +394,15 @@ else
 
             @if (!string.IsNullOrEmpty(_commentError))
             {
-                <div class="alert alert-danger py-2 mb-2">@_commentError</div>
+                <div class="alert alert-danger py-2 mb-2" role="alert" aria-live="assertive">@_commentError</div>
             }
             <div class="d-flex gap-2 align-items-end">
-                <textarea class="form-control" rows="2" placeholder="Add a comment…" @bind="_commentBody"
-                          style="font-size:.875rem;resize:vertical"></textarea>
+                <div class="flex-grow-1">
+                    <label class="form-label rz-field-label" for="requestComment">Add a comment</label>
+                    <textarea id="requestComment" class="form-control" rows="2" placeholder="Add a comment..."
+                              maxlength="4000" @bind="_commentBody"
+                              style="font-size:.875rem;resize:vertical"></textarea>
+                </div>
                 <button class="rz-btn rz-btn-primary flex-shrink-0" @onclick="PostComment" disabled="@_postingComment">
                     @if (_postingComment)
                     {
@@ -392,7 +410,7 @@ else
                     }
                     else
                     {
-                        <i class="bi bi-send"></i>
+                        <i class="bi bi-send"></i> <span>Post</span>
                     }
                 </button>
             </div>
@@ -412,6 +430,7 @@ else
     private string _commentBody = "";
     private string _commentError = "";
     private bool _postingComment;
+    private const int MaxCommentLength = 4000;
 
     protected override async Task OnInitializedAsync()
     {
@@ -443,7 +462,7 @@ else
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            _error = FriendlyError(ex, "Could not review this request. Check the request status and try again.");
         }
     }
 
@@ -452,7 +471,17 @@ else
     private async Task PostComment()
     {
         _commentError = "";
-        if (string.IsNullOrWhiteSpace(_commentBody)) return;
+        var body = _commentBody.Trim();
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            _commentError = "Enter a comment before posting.";
+            return;
+        }
+        if (body.Length > MaxCommentLength)
+        {
+            _commentError = $"Comments must be {MaxCommentLength} characters or fewer.";
+            return;
+        }
 
         _postingComment = true;
         try
@@ -460,7 +489,7 @@ else
             var upn  = GetCurrentUserUpn();
             var name = HttpContextAccessor.HttpContext?.User?.Identity?.Name ?? upn;
             var comment = await Requests.AddCommentAsync(Id,
-                new AddCommentDto { Body = _commentBody },
+                new AddCommentDto { Body = body },
                 authorUpn: upn,
                 authorDisplayName: name,
                 isAdmin: true);
@@ -469,7 +498,7 @@ else
         }
         catch (Exception ex)
         {
-            _commentError = ex.Message;
+            _commentError = FriendlyError(ex, "Could not post the comment. Check the request status and try again.");
         }
         finally
         {
@@ -486,4 +515,15 @@ else
             ?? user?.Identity?.Name
             ?? "unknown";
     }
+
+    private static string DenialReason(ElevationRequestDto request) =>
+        string.IsNullOrWhiteSpace(request.ReviewerNote)
+            ? "No denial reason was provided."
+            : request.ReviewerNote;
+
+    private static string FriendlyError(Exception ex, string fallback) => ex switch
+    {
+        ArgumentException or InvalidOperationException or UnauthorizedAccessException => ex.Message,
+        _ => fallback
+    };
 }

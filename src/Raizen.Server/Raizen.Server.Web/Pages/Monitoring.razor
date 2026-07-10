@@ -1,0 +1,94 @@
+@page "/monitoring"
+@attribute [Authorize(Policy = "Admin")]
+@inject IMonitoringService MonitoringService
+@inject AuthenticationStateProvider Auth
+@using Raizen.Shared.DTOs
+@using Raizen.Shared.Enums
+
+<PageTitle>Monitoring Alerts | Raizen</PageTitle>
+
+<div class="rz-page-header">
+    <div>
+        <h1 class="rz-page-title">Monitoring</h1>
+        <p class="rz-page-subtitle">Active endpoint and service alerts.</p>
+    </div>
+    <button class="rz-btn rz-btn-ghost" @onclick="Evaluate" disabled="@_busy">
+        <i class="bi bi-arrow-clockwise"></i> Evaluate now
+    </button>
+</div>
+
+<nav class="nav nav-tabs mb-4" aria-label="Monitoring sections">
+    <a class="nav-link active" href="monitoring">Alerts</a>
+    <a class="nav-link" href="monitoring/rules">Rules</a>
+</nav>
+
+@if (_loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading alerts</div>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-4"><div class="rz-stat-card"><div class="rz-stat-icon danger"><i class="bi bi-exclamation-octagon"></i></div><div><div class="rz-stat-value">@_alerts.Count(x => x.Severity == MonitoringSeverity.Critical)</div><div class="rz-stat-label">Critical</div></div></div></div>
+        <div class="col-sm-4"><div class="rz-stat-card"><div class="rz-stat-icon warning"><i class="bi bi-exclamation-triangle"></i></div><div><div class="rz-stat-value">@_alerts.Count(x => x.Severity == MonitoringSeverity.Warning)</div><div class="rz-stat-label">Warnings</div></div></div></div>
+        <div class="col-sm-4"><div class="rz-stat-card"><div class="rz-stat-icon info"><i class="bi bi-info-circle"></i></div><div><div class="rz-stat-value">@_alerts.Count</div><div class="rz-stat-label">Active alerts</div></div></div></div>
+    </div>
+
+    <div class="rz-card">
+        @if (_alerts.Count == 0)
+        {
+            <div class="rz-empty"><i class="bi bi-check-circle"></i>No active monitoring alerts.</div>
+        }
+        else
+        {
+            <div style="overflow-x:auto">
+                <table class="rz-table">
+                    <thead><tr><th>Severity</th><th>Endpoint</th><th>Rule</th><th>Detail</th><th>Since</th><th></th></tr></thead>
+                    <tbody>
+                    @foreach (var alert in _alerts)
+                    {
+                        <tr>
+                            <td><span class="badge @SeverityClass(alert.Severity)">@alert.Severity</span></td>
+                            <td><a href="@($"endpoints/{alert.EndpointRegistrationId}")"><strong>@alert.MachineName</strong></a></td>
+                            <td>@alert.RuleName</td>
+                            <td style="max-width:420px">@alert.Message</td>
+                            <td>@FormatAgo(alert.TriggeredAt)</td>
+                            <td>
+                                @if (alert.AcknowledgedAt is null)
+                                {
+                                    <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="() => Acknowledge(alert)" disabled="@_busy">Acknowledge</button>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small" title="@alert.AcknowledgedBy">Acknowledged</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+    @if (_message is not null) { <div class="alert alert-info mt-3 py-2">@_message</div> }
+}
+
+@code {
+    private List<MonitoringAlertDto> _alerts = [];
+    private bool _loading = true;
+    private bool _busy;
+    private string? _message;
+    private string _actor = "admin";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = (await Auth.GetAuthenticationStateAsync()).User.Identity?.Name ?? "admin";
+        await Load();
+    }
+
+    private async Task Load() { _alerts = await MonitoringService.ListAlertsAsync(); _loading = false; }
+    private async Task Evaluate() { _busy = true; await MonitoringService.EvaluateAllAsync(); await Load(); _busy = false; _message = "Monitoring evaluation completed."; }
+    private async Task Acknowledge(MonitoringAlertDto alert) { _busy = true; await MonitoringService.AcknowledgeAsync(alert.Id, _actor); await Load(); _busy = false; }
+    private static string SeverityClass(MonitoringSeverity severity) => severity switch { MonitoringSeverity.Critical => "bg-danger", MonitoringSeverity.Warning => "bg-warning text-dark", _ => "bg-info text-dark" };
+    private static string FormatAgo(DateTimeOffset value) { var age = DateTimeOffset.UtcNow - value; return age.TotalMinutes < 60 ? $"{Math.Max(1, (int)age.TotalMinutes)}m ago" : age.TotalHours < 24 ? $"{(int)age.TotalHours}h ago" : value.ToLocalTime().ToString("yyyy-MM-dd"); }
+}

@@ -142,7 +142,7 @@ public sealed class RequestForm : Form
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = $"Could not load actions: {ex.Message}";
+            _statusLabel.Text = $"Could not load actions: {FriendlyError(ex, "Check your server connection and try again.")}";
             _statusLabel.ForeColor = TrayStyle.Danger;
         }
     }
@@ -281,11 +281,17 @@ public sealed class RequestForm : Form
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = $"Submission failed: {ex.Message}";
+            _statusLabel.Text = $"Submission failed: {FriendlyError(ex, "Check your server connection and try again.")}";
             _statusLabel.ForeColor = TrayStyle.Danger;
             _submitButton.Enabled = true;
         }
     }
+
+    private static string FriendlyError(Exception ex, string fallback) => ex switch
+    {
+        ArgumentException or InvalidOperationException or UnauthorizedAccessException => ex.Message,
+        _ => fallback
+    };
 
     internal static string FormatApprovalEstimate(ActionDefinitionDto action)
     {

@@ -229,6 +229,8 @@ public sealed class TrayApplicationContext : ApplicationContext
                     {
                         _notifiedRequests.Add(r.Id);
                         _trayIcon.ShowBalloonTip(10000, title, text, icon);
+                        if (r.Status == RequestStatus.Denied)
+                            new DenialNotificationForm(_serverClient, r).Show();
                     }
                     else if (r.Status is RequestStatus.Succeeded or RequestStatus.Failed
                                       or RequestStatus.Denied or RequestStatus.Cancelled
@@ -240,8 +242,9 @@ public sealed class TrayApplicationContext : ApplicationContext
                 }
 
                 // ── Comment notifications (always check, deduped by comment ID) ──
-                // Only poll comments for non-terminal requests to keep API calls low
-                if (r.Status is RequestStatus.Pending or RequestStatus.Approved or RequestStatus.Executing)
+                // Keep denied requests commentable so the requester can ask for clarification.
+                if (r.Status is RequestStatus.Pending or RequestStatus.Approved or RequestStatus.Executing
+                    or RequestStatus.Denied)
                 {
                     try
                     {

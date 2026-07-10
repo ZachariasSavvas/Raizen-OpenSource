@@ -42,6 +42,24 @@ public sealed class EndpointRegistration
     public string? LastUpdateError { get; set; }
     public DateTimeOffset? LastSuccessfulUpdateAt { get; set; }
 
+    public DateTimeOffset? HealthReportedAt { get; set; }
+    public long? UptimeSeconds { get; set; }
+    public double? CpuLoadPercent { get; set; }
+    public double? MemoryUsedPercent { get; set; }
+    public double? SystemDriveFreePercent { get; set; }
+    public long? SystemDriveFreeBytes { get; set; }
+    public string? LoggedOnUser { get; set; }
+    public string IpAddressesJson { get; set; } = "[]";
+    public bool PendingReboot { get; set; }
+    public bool? DefenderEnabled { get; set; }
+    public int? DefenderSignatureAgeDays { get; set; }
+    public bool? BitLockerProtected { get; set; }
+    public string? HealthCollectionError { get; set; }
+    public DateTimeOffset? ProcessInventoryReportedAt { get; set; }
+    public DateTimeOffset? ServiceInventoryReportedAt { get; set; }
+    public string ProcessesJson { get; set; } = "[]";
+    public string ServicesJson { get; set; } = "[]";
+
     /// <summary>Previous API key hash, valid during grace period after rotation.</summary>
     public string? PreviousApiKeyHash { get; set; }
 
@@ -49,4 +67,7 @@ public sealed class EndpointRegistration
     public DateTimeOffset? PreviousKeyExpiresAt { get; set; }
 
     public ICollection<ElevationRequest> Requests { get; set; } = [];
+    public ICollection<DiagnosticBundle> DiagnosticBundles { get; set; } = [];
+    public ICollection<MonitoringAlert> MonitoringAlerts { get; set; } = [];
+    public ICollection<MonitoringRule> MonitoringRules { get; set; } = [];
 }

@@ -1,0 +1,200 @@
+@page "/monitoring/rules"
+@attribute [Authorize(Policy = "Admin")]
+@inject IMonitoringService MonitoringService
+@inject IEndpointService EndpointService
+@inject AuthenticationStateProvider Auth
+@using Raizen.Shared.DTOs
+@using Raizen.Shared.Enums
+
+<PageTitle>Monitoring Rules | Raizen</PageTitle>
+
+<div class="rz-page-header">
+    <div>
+        <h1 class="rz-page-title">Monitoring</h1>
+        <p class="rz-page-subtitle">Health thresholds, service checks, and email routing.</p>
+    </div>
+</div>
+
+<nav class="nav nav-tabs mb-4" aria-label="Monitoring sections">
+    <a class="nav-link" href="monitoring">Alerts</a>
+    <a class="nav-link active" href="monitoring/rules">Rules</a>
+</nav>
+
+@if (_loading)
+{
+    <div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading rules</div>
+}
+else
+{
+    <div class="rz-card mb-4">
+        <div class="rz-card-header"><i class="bi bi-hdd-stack"></i> Monitor a Windows service</div>
+        <div class="rz-card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Endpoint scope</label>
+                    <select class="form-select form-select-sm" @bind="_newEndpointId">
+                        <option value="">All endpoints</option>
+                        @foreach (var endpoint in _endpoints) { <option value="@endpoint.Id">@endpoint.MachineName</option> }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Service name</label>
+                    <input class="form-control form-control-sm" @bind="_newServiceName" list="reported-services" placeholder="Spooler" />
+                    <datalist id="reported-services">
+                        @foreach (var service in ReportedServices()) { <option value="@service.Name">@service.DisplayName</option> }
+                    </datalist>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Severity</label>
+                    <select class="form-select form-select-sm" @bind="_newSeverity">
+                        @foreach (var severity in Enum.GetValues<MonitoringSeverity>()) { <option value="@severity">@severity</option> }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="new-email" @bind="_newNotifyByEmail" />
+                        <label class="form-check-label" for="new-email">Send an email when triggered</label>
+                    </div>
+                    <input class="form-control form-control-sm" @bind="_newRecipients" disabled="@(!_newNotifyByEmail)" placeholder="ops@example.com, owner@example.com" />
+                </div>
+                <div class="col-12 d-flex align-items-center gap-3">
+                    <button class="rz-btn rz-btn-primary rz-btn-sm" @onclick="CreateServiceRule" disabled="@_busy"><i class="bi bi-plus-lg"></i> Add service rule</button>
+                    <span class="text-muted small">Leave recipients blank to use the global list under Notifications.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rz-card">
+        <div style="overflow-x:auto">
+            <table class="rz-table">
+                <thead><tr><th>Enabled</th><th>Rule</th><th>Scope</th><th>Threshold</th><th>Severity</th><th>Email</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var rule in _rules)
+                {
+                    <tr>
+                        <td><input class="form-check-input" type="checkbox" @bind="rule.IsEnabled" /></td>
+                        <td><strong>@rule.Name</strong><div class="text-muted small">@rule.Description</div></td>
+                        <td>@(rule.EndpointName ?? "All endpoints")</td>
+                        <td style="width:160px">
+                            @if (UsesThreshold(rule.RuleType))
+                            {
+                                <div class="input-group input-group-sm"><input class="form-control" type="number" step="1" @bind="rule.Threshold" /><span class="input-group-text">@ThresholdUnit(rule.RuleType)</span></div>
+                            }
+                            else { <span class="text-muted">State check</span> }
+                        </td>
+                        <td style="width:140px"><select class="form-select form-select-sm" @bind="rule.Severity">@foreach (var severity in Enum.GetValues<MonitoringSeverity>()) { <option value="@severity">@severity</option> }</select></td>
+                        <td style="min-width:260px">
+                            <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="@($"email-{rule.Id}")" @bind="rule.NotifyByEmail" /><label class="form-check-label" for="@($"email-{rule.Id}")">Notify</label></div>
+                            <input class="form-control form-control-sm" @bind="_recipientText[rule.Id]" disabled="@(!rule.NotifyByEmail)" placeholder="Global recipients" />
+                        </td>
+                        <td class="text-nowrap">
+                            <button class="rz-btn rz-btn-primary rz-btn-sm" @onclick="() => SaveRule(rule)" disabled="@_busy">Save</button>
+                            @if (_deletePending == rule.Id)
+                            {
+                                <button class="rz-btn rz-btn-danger rz-btn-sm ms-1" @onclick="() => DeleteRule(rule)" disabled="@_busy">Confirm</button>
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm ms-1" @onclick="CancelDelete" disabled="@_busy">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="rz-btn rz-btn-ghost rz-btn-sm text-danger ms-1" @onclick="() => RequestDelete(rule.Id)" disabled="@_busy" title="Delete rule"><i class="bi bi-trash"></i></button>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    @if (_message is not null) { <div class="alert @(_error ? "alert-danger" : "alert-info") mt-3 py-2">@_message</div> }
+}
+
+@code {
+    private List<MonitoringRuleDto> _rules = [];
+    private List<EndpointRegistrationDto> _endpoints = [];
+    private readonly Dictionary<Guid, string> _recipientText = [];
+    private string _actor = "admin";
+    private string _newEndpointId = string.Empty;
+    private string _newServiceName = string.Empty;
+    private MonitoringSeverity _newSeverity = MonitoringSeverity.Critical;
+    private bool _newNotifyByEmail;
+    private string _newRecipients = string.Empty;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _error;
+    private string? _message;
+    private Guid? _deletePending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = (await Auth.GetAuthenticationStateAsync()).User.Identity?.Name ?? "admin";
+        _endpoints = await EndpointService.ListAsync();
+        await LoadRules();
+        _loading = false;
+    }
+
+    private async Task LoadRules()
+    {
+        _rules = await MonitoringService.ListRulesAsync();
+        _recipientText.Clear();
+        foreach (var rule in _rules) _recipientText[rule.Id] = string.Join(", ", rule.NotificationRecipients);
+    }
+
+    private IEnumerable<EndpointServiceDto> ReportedServices() => _endpoints
+        .Where(x => string.IsNullOrEmpty(_newEndpointId) || x.Id.ToString() == _newEndpointId)
+        .SelectMany(x => x.Health?.Services ?? [])
+        .DistinctBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x.DisplayName)
+        .Take(500);
+
+    private async Task CreateServiceRule()
+    {
+        _busy = true; _message = null; _error = false;
+        try
+        {
+            await MonitoringService.CreateServiceRuleAsync(new ServiceMonitoringRuleUpsertDto
+            {
+                EndpointRegistrationId = Guid.TryParse(_newEndpointId, out var id) ? id : null,
+                ServiceName = _newServiceName,
+                Severity = _newSeverity,
+                NotifyByEmail = _newNotifyByEmail,
+                NotificationRecipients = ParseRecipients(_newRecipients),
+            }, _actor);
+            _newServiceName = string.Empty; _newRecipients = string.Empty; _newNotifyByEmail = false;
+            await LoadRules();
+            _message = "Service monitoring rule added.";
+        }
+        catch (Exception ex) { _message = ex.Message; _error = true; }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveRule(MonitoringRuleDto rule)
+    {
+        _busy = true; _message = null; _error = false;
+        try
+        {
+            await MonitoringService.UpdateRuleAsync(rule.Id, rule.IsEnabled, rule.Threshold, rule.Severity,
+                rule.NotifyByEmail, ParseRecipients(_recipientText[rule.Id]), _actor);
+            _message = $"Saved {rule.Name}.";
+        }
+        catch (Exception ex) { _message = ex.Message; _error = true; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteRule(MonitoringRuleDto rule)
+    {
+        _busy = true; _message = null; _error = false;
+        try { await MonitoringService.DeleteRuleAsync(rule.Id, _actor); _deletePending = null; await LoadRules(); _message = "Monitoring rule deleted."; }
+        catch (Exception ex) { _message = ex.Message; _error = true; }
+        finally { _busy = false; }
+    }
+
+    private void RequestDelete(Guid id) => _deletePending = id;
+    private void CancelDelete() => _deletePending = null;
+
+    private static List<string> ParseRecipients(string value) => value
+        .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToList();
+    private static bool UsesThreshold(MonitoringRuleType type) => type is MonitoringRuleType.EndpointOfflineMinutes or MonitoringRuleType.LowSystemDriveFreePercent or MonitoringRuleType.HighMemoryUsedPercent or MonitoringRuleType.DefenderSignatureAgeDays;
+    private static string ThresholdUnit(MonitoringRuleType type) => type switch { MonitoringRuleType.EndpointOfflineMinutes => "min", MonitoringRuleType.DefenderSignatureAgeDays => "days", _ => "%" };
+}

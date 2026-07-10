@@ -17,6 +17,9 @@ public sealed class RaizenDbContext(DbContextOptions<RaizenDbContext> options) :
     public DbSet<RequestApproval>      RequestApprovals      => Set<RequestApproval>();
     public DbSet<PasswordHistory>     PasswordHistories     => Set<PasswordHistory>();
     public DbSet<BulkOperation>       BulkOperations        => Set<BulkOperation>();
+    public DbSet<DiagnosticBundle>    DiagnosticBundles     => Set<DiagnosticBundle>();
+    public DbSet<MonitoringRule>      MonitoringRules       => Set<MonitoringRule>();
+    public DbSet<MonitoringAlert>     MonitoringAlerts      => Set<MonitoringAlert>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -47,6 +50,11 @@ public sealed class RaizenDbContext(DbContextOptions<RaizenDbContext> options) :
             e.Property(x => x.LastPollError).HasMaxLength(1000);
             e.Property(x => x.LastUpdateStatus).HasMaxLength(64);
             e.Property(x => x.LastUpdateError).HasMaxLength(1000);
+            e.Property(x => x.LoggedOnUser).HasMaxLength(320);
+            e.Property(x => x.IpAddressesJson).HasColumnType("jsonb");
+            e.Property(x => x.ProcessesJson).HasColumnType("jsonb");
+            e.Property(x => x.ServicesJson).HasColumnType("jsonb");
+            e.Property(x => x.HealthCollectionError).HasMaxLength(1000);
             e.HasIndex(x => x.MachineId).IsUnique();
             e.HasIndex(x => x.DormantSince);
         });
@@ -136,7 +144,7 @@ public sealed class RaizenDbContext(DbContextOptions<RaizenDbContext> options) :
             e.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
             e.Property(x => x.Label).HasMaxLength(200).IsRequired();
             e.Property(x => x.CreatedBy).HasMaxLength(320).IsRequired();
-            e.HasIndex(x => x.TokenHash);
+            e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.IsActive);
             e.HasIndex(x => x.ExpiresAt);
         });
@@ -204,7 +212,7 @@ public sealed class RaizenDbContext(DbContextOptions<RaizenDbContext> options) :
              .HasForeignKey(x => x.RequestId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.RequestId);
-            e.HasIndex(x => new { x.RequestId, x.ApproverUpn });
+            e.HasIndex(x => new { x.RequestId, x.ApproverUpn }).IsUnique();
         });
 
         // ── BulkOperation ─────────────────────────────────────────────────
@@ -220,6 +228,51 @@ public sealed class RaizenDbContext(DbContextOptions<RaizenDbContext> options) :
              .WithMany()
              .HasForeignKey(x => x.ActionDefinitionId)
              .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<DiagnosticBundle>(e =>
+        {
+            e.ToTable("diagnostic_bundles");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            e.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Content).HasColumnType("bytea").IsRequired();
+            e.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+            e.HasOne(x => x.Endpoint).WithMany(x => x.DiagnosticBundles)
+                .HasForeignKey(x => x.EndpointRegistrationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Request).WithMany()
+                .HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.EndpointRegistrationId);
+            e.HasIndex(x => x.RequestId).IsUnique();
+            e.HasIndex(x => x.ExpiresAt);
+        });
+
+        model.Entity<MonitoringRule>(e =>
+        {
+            e.ToTable("monitoring_rules");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.TargetServiceName).HasMaxLength(256);
+            e.Property(x => x.NotificationRecipientsJson).HasColumnType("jsonb");
+            e.HasOne(x => x.Endpoint).WithMany(x => x.MonitoringRules)
+                .HasForeignKey(x => x.EndpointRegistrationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.RuleType);
+            e.HasIndex(x => x.EndpointRegistrationId);
+        });
+
+        model.Entity<MonitoringAlert>(e =>
+        {
+            e.ToTable("monitoring_alerts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Message).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.AcknowledgedBy).HasMaxLength(320);
+            e.HasOne(x => x.Rule).WithMany(x => x.Alerts)
+                .HasForeignKey(x => x.MonitoringRuleId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Endpoint).WithMany(x => x.MonitoringAlerts)
+                .HasForeignKey(x => x.EndpointRegistrationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.EndpointRegistrationId, x.MonitoringRuleId, x.IsActive });
+            e.HasIndex(x => x.LastObservedAt);
         });
     }
 }

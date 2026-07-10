@@ -38,8 +38,11 @@ public sealed class AuditService(
     ISyslogSender syslog,
     IConfiguration config) : IAuditService
 {
-    // Static lock: AuditService is Scoped, but hash chain writes must be globally serialized
-    // so that concurrent requests don't both read the same "last hash" and fork the chain.
+    private const long AuditChainLockId = 7_249_316_012;
+
+    // The static lock serializes scopes inside one process. PostgreSQL writes also take
+    // AuditChainLockId transactionally so API, Web, and multi-instance deployments cannot
+    // read the same chain tip and create a fork.
     private static readonly SemaphoreSlim _chainLock = new(1, 1);
 
     public async Task LogAsync(
@@ -62,6 +65,14 @@ public sealed class AuditService(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var transaction = db.Database.IsNpgsql()
+                ? await db.Database.BeginTransactionAsync(ct)
+                : null;
+
+            if (transaction is not null)
+                await db.Database.ExecuteSqlRawAsync(
+                    $"SELECT pg_advisory_xact_lock({AuditChainLockId})", ct);
+
             var prevHash = await db.AuditLogs
                 .OrderByDescending(x => x.OccurredAt)
                 .ThenByDescending(x => x.Id)
@@ -83,6 +94,8 @@ public sealed class AuditService(
 
             db.AuditLogs.Add(entry);
             await db.SaveChangesAsync(ct);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
         }
         finally
         {
@@ -135,6 +148,18 @@ public sealed class AuditService(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var transaction = db.Database.IsNpgsql()
+                ? await db.Database.BeginTransactionAsync(ct)
+                : null;
+
+            if (transaction is not null)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    $"SELECT pg_advisory_xact_lock({AuditChainLockId})", ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    "SET LOCAL raizen.audit_repair = 'on'", ct);
+            }
+
             var key      = HmacKey();
             var prevHash = string.Empty;
             int repaired = 0;
@@ -183,6 +208,8 @@ public sealed class AuditService(
             db.AuditLogs.Add(repairEntry);
 
             await db.SaveChangesAsync(ct);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
 
             syslog.Send(new SyslogPayload("chain.repaired", actorUpn, null, repairEntry.Detail, null, now));
             return repaired;

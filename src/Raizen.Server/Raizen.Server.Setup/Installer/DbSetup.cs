@@ -75,20 +75,6 @@ public static class DbSetup
             "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO raizen;", raizenConn);
         await grantCmd.ExecuteNonQueryAsync(ct);
 
-        // ── Reset admin users so Web reseeds with the current EncryptionKey ──────
-        // The EncryptionKey is regenerated on every install. Any existing password
-        // hashes encrypted with a previous key would be unverifiable, locking admins out.
-        // Truncating forces the Web service to reseed Admin/Admin on next start.
-        await using var resetAdminCmd = new NpgsqlCommand("""
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'admin_users') THEN
-                    TRUNCATE TABLE admin_users;
-                END IF;
-            END $$;
-            """, raizenConn);
-        await resetAdminCmd.ExecuteNonQueryAsync(ct);
-
         // ── Reassign ownership of all public tables to raizen ─────────────────
         // Handles upgrades over existing installs where tables were created by the
         // superuser; raizen must own tables to create indexes at API/Web startup.
@@ -105,6 +91,14 @@ public static class DbSetup
             END $$;
             """, raizenConn);
         await reassignCmd.ExecuteNonQueryAsync(ct);
+
+        // Runtime code never deletes audit history. The trigger also blocks ordinary
+        // updates; AuditService enables its narrowly scoped repair mode in a transaction.
+        await using var auditAclCmd = new NpgsqlCommand("""
+            ALTER FUNCTION raizen_guard_audit_mutation() OWNER TO raizen;
+            REVOKE DELETE ON TABLE audit_logs FROM raizen;
+            """, raizenConn);
+        await auditAclCmd.ExecuteNonQueryAsync(ct);
 
         // ── Seed / repair default action definitions ──────────────────────────
         // INSERT ... WHERE NOT EXISTS creates definitions on a fresh install.
@@ -160,7 +154,24 @@ public static class DbSetup
             "LastUpdateError" VARCHAR(1000),
             "LastSuccessfulUpdateAt" TIMESTAMPTZ,
             "PreviousApiKeyHash" TEXT,
-            "PreviousKeyExpiresAt" TIMESTAMPTZ
+            "PreviousKeyExpiresAt" TIMESTAMPTZ,
+            "HealthReportedAt" TIMESTAMPTZ,
+            "UptimeSeconds" BIGINT,
+            "CpuLoadPercent" DOUBLE PRECISION,
+            "MemoryUsedPercent" DOUBLE PRECISION,
+            "SystemDriveFreePercent" DOUBLE PRECISION,
+            "SystemDriveFreeBytes" BIGINT,
+            "LoggedOnUser" VARCHAR(320),
+            "IpAddressesJson" JSONB NOT NULL DEFAULT '[]',
+            "PendingReboot" BOOLEAN NOT NULL DEFAULT FALSE,
+            "DefenderEnabled" BOOLEAN,
+            "DefenderSignatureAgeDays" INTEGER,
+            "BitLockerProtected" BOOLEAN,
+            "HealthCollectionError" VARCHAR(1000),
+            "ProcessInventoryReportedAt" TIMESTAMPTZ,
+            "ServiceInventoryReportedAt" TIMESTAMPTZ,
+            "ProcessesJson" JSONB NOT NULL DEFAULT '[]',
+            "ServicesJson" JSONB NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS elevation_requests (
@@ -187,6 +198,73 @@ public static class DbSetup
         CREATE INDEX IF NOT EXISTS idx_requests_submitted ON elevation_requests ("SubmittedAt" DESC);
         CREATE INDEX IF NOT EXISTS idx_requests_ep_status ON elevation_requests ("EndpointRegistrationId", "Status");
 
+        CREATE TABLE IF NOT EXISTS diagnostic_bundles (
+            "Id" UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "EndpointRegistrationId" UUID NOT NULL REFERENCES endpoint_registrations ("Id") ON DELETE CASCADE,
+            "RequestId" UUID NOT NULL REFERENCES elevation_requests ("Id") ON DELETE CASCADE,
+            "FileName" VARCHAR(260) NOT NULL,
+            "ContentType" VARCHAR(100) NOT NULL DEFAULT 'application/zip',
+            "Content" BYTEA NOT NULL,
+            "Sha256" VARCHAR(64) NOT NULL,
+            "SizeBytes" INTEGER NOT NULL,
+            "EventCount" INTEGER NOT NULL,
+            "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+            "ExpiresAt" TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_diagnostic_bundles_EndpointRegistrationId" ON diagnostic_bundles ("EndpointRegistrationId");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_diagnostic_bundles_RequestId" ON diagnostic_bundles ("RequestId");
+        CREATE INDEX IF NOT EXISTS "IX_diagnostic_bundles_ExpiresAt" ON diagnostic_bundles ("ExpiresAt");
+
+        CREATE TABLE IF NOT EXISTS monitoring_rules (
+            "Id" UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "RuleType" INTEGER NOT NULL,
+            "Name" VARCHAR(200) NOT NULL,
+            "Description" VARCHAR(1000) NOT NULL DEFAULT '',
+            "Threshold" DOUBLE PRECISION NOT NULL,
+            "Severity" INTEGER NOT NULL,
+            "IsEnabled" BOOLEAN NOT NULL DEFAULT TRUE,
+            "IsDeleted" BOOLEAN NOT NULL DEFAULT FALSE,
+            "EndpointRegistrationId" UUID REFERENCES endpoint_registrations ("Id") ON DELETE CASCADE,
+            "TargetServiceName" VARCHAR(256),
+            "NotifyByEmail" BOOLEAN NOT NULL DEFAULT FALSE,
+            "NotificationRecipientsJson" JSONB NOT NULL DEFAULT '[]',
+            "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+            "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS "IX_monitoring_rules_RuleType_Multi" ON monitoring_rules ("RuleType");
+        CREATE INDEX IF NOT EXISTS "IX_monitoring_rules_EndpointRegistrationId" ON monitoring_rules ("EndpointRegistrationId");
+        INSERT INTO monitoring_rules
+            ("Id","RuleType","Name","Description","Threshold","Severity","IsEnabled","CreatedAt","UpdatedAt")
+        SELECT gen_random_uuid(), v."RuleType", v."Name", v."Description", v."Threshold", v."Severity", TRUE, now(), now()
+        FROM (VALUES
+            (1,'Endpoint offline','Alert when an enabled endpoint misses heartbeats.',10::double precision,2),
+            (2,'Low system drive space','Alert when free space on the Windows system drive falls below this percentage.',15::double precision,1),
+            (3,'High memory usage','Alert when physical memory usage exceeds this percentage.',90::double precision,1),
+            (4,'Defender disabled','Alert when Microsoft Defender antivirus or real-time protection is disabled.',0::double precision,2),
+            (5,'Defender signatures stale','Alert when Defender signatures are older than this many days.',3::double precision,1),
+            (6,'BitLocker not protected','Alert when the system volume reports BitLocker protection off.',0::double precision,1),
+            (7,'Pending reboot','Alert when Windows reports that a reboot is required.',0::double precision,0),
+            (8,'Health collection failed','Alert when core endpoint health metrics cannot be collected.',0::double precision,1)
+        ) AS v("RuleType","Name","Description","Threshold","Severity")
+        WHERE NOT EXISTS (SELECT 1 FROM monitoring_rules r WHERE r."Name" = v."Name");
+
+        CREATE TABLE IF NOT EXISTS monitoring_alerts (
+            "Id" UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "MonitoringRuleId" UUID NOT NULL REFERENCES monitoring_rules ("Id") ON DELETE CASCADE,
+            "EndpointRegistrationId" UUID NOT NULL REFERENCES endpoint_registrations ("Id") ON DELETE CASCADE,
+            "Message" VARCHAR(1000) NOT NULL,
+            "ObservedValue" DOUBLE PRECISION,
+            "IsActive" BOOLEAN NOT NULL DEFAULT TRUE,
+            "TriggeredAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+            "LastObservedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+            "ResolvedAt" TIMESTAMPTZ,
+            "AcknowledgedAt" TIMESTAMPTZ,
+            "AcknowledgedBy" VARCHAR(320)
+        );
+        CREATE INDEX IF NOT EXISTS "IX_monitoring_alerts_EndpointRegistrationId_MonitoringRuleId_IsActive"
+            ON monitoring_alerts ("EndpointRegistrationId", "MonitoringRuleId", "IsActive");
+        CREATE INDEX IF NOT EXISTS "IX_monitoring_alerts_LastObservedAt" ON monitoring_alerts ("LastObservedAt");
+
         CREATE TABLE IF NOT EXISTS audit_logs (
             "Id"            UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
             "RequestId"     UUID         REFERENCES elevation_requests ("Id") ON DELETE SET NULL,
@@ -204,6 +282,31 @@ public static class DbSetup
         CREATE INDEX IF NOT EXISTS idx_audit_event    ON audit_logs ("Event");
         CREATE INDEX IF NOT EXISTS idx_audit_request  ON audit_logs ("RequestId");
 
+        CREATE OR REPLACE FUNCTION raizen_guard_audit_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'DELETE' THEN
+                RAISE EXCEPTION 'audit_logs is append-only';
+            END IF;
+            IF current_setting('raizen.audit_repair', true) IS DISTINCT FROM 'on' THEN
+                RAISE EXCEPTION 'audit_logs may only be updated by the audited repair workflow';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'TR_audit_logs_append_only'
+                  AND tgrelid = 'audit_logs'::regclass
+            ) THEN
+                CREATE TRIGGER "TR_audit_logs_append_only"
+                    BEFORE UPDATE OR DELETE ON audit_logs
+                    FOR EACH ROW EXECUTE FUNCTION raizen_guard_audit_mutation();
+            END IF;
+        END $$;
+
         CREATE INDEX IF NOT EXISTS "IX_endpoint_registrations_LastSeenAt" ON endpoint_registrations ("LastSeenAt");
 
         CREATE TABLE IF NOT EXISTS registration_tokens (
@@ -217,7 +320,19 @@ public static class DbSetup
             "IsActive"  BOOLEAN      NOT NULL DEFAULT TRUE,
             "CreatedBy" VARCHAR(320) NOT NULL DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS "IX_registration_tokens_TokenHash" ON registration_tokens ("TokenHash");
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'IX_registration_tokens_TokenHash'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+            ) THEN
+                EXECUTE 'DROP INDEX IF EXISTS "IX_registration_tokens_TokenHash"';
+                EXECUTE 'CREATE UNIQUE INDEX "IX_registration_tokens_TokenHash" '
+                     || 'ON registration_tokens ("TokenHash")';
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_IsActive"  ON registration_tokens ("IsActive");
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_ExpiresAt" ON registration_tokens ("ExpiresAt");
 
@@ -255,8 +370,27 @@ public static class DbSetup
         );
         CREATE INDEX IF NOT EXISTS "IX_request_approvals_RequestId"
             ON request_approvals ("RequestId");
-        CREATE INDEX IF NOT EXISTS "IX_request_approvals_RequestId_ApproverUpn"
-            ON request_approvals ("RequestId", "ApproverUpn");
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'IX_request_approvals_RequestId_ApproverUpn'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+                  AND indexdef LIKE '%lower(%'
+            ) THEN
+                IF EXISTS (
+                    SELECT 1 FROM request_approvals
+                    GROUP BY "RequestId", lower("ApproverUpn")
+                    HAVING count(*) > 1
+                ) THEN
+                    RAISE EXCEPTION 'Duplicate approver votes must be resolved before applying the unique approval index';
+                END IF;
+                EXECUTE 'DROP INDEX IF EXISTS "IX_request_approvals_RequestId_ApproverUpn"';
+                EXECUTE 'CREATE UNIQUE INDEX "IX_request_approvals_RequestId_ApproverUpn" '
+                     || 'ON request_approvals ("RequestId", lower("ApproverUpn"))';
+            END IF;
+        END $$;
 
         CREATE TABLE IF NOT EXISTS notification_settings (
             "Id"               UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -272,9 +406,12 @@ public static class DbSetup
             "NotifyOnSubmit"   BOOLEAN      NOT NULL DEFAULT TRUE,
             "NotifyOnApproved" BOOLEAN      NOT NULL DEFAULT TRUE,
             "NotifyOnDenied"   BOOLEAN      NOT NULL DEFAULT TRUE,
+            "NotifyOnCompleted" BOOLEAN     NOT NULL DEFAULT TRUE,
             "UpdatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT now(),
             "UpdatedBy"        VARCHAR(320) NOT NULL DEFAULT ''
         );
+        ALTER TABLE notification_settings
+            ADD COLUMN IF NOT EXISTS "NotifyOnCompleted" BOOLEAN NOT NULL DEFAULT TRUE;
 
         CREATE TABLE IF NOT EXISTS admin_users (
             "Id"                 UUID         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -509,6 +646,18 @@ public static class DbSetup
         SET "ParametersSchemaJson" = '[{"key":"VariableName","displayName":"Variable Name","description":"Name of the environment variable","type":0,"required":true,"validationPattern":null,"defaultValue":null},{"key":"Operation","displayName":"Operation","description":"Set, Append, or Delete","type":0,"required":true,"validationPattern":null,"defaultValue":null},{"key":"Value","displayName":"Value","description":"Value to assign (leave empty for Delete)","type":0,"required":false,"validationPattern":null,"defaultValue":null}]',
             "UpdatedAt" = now()
         WHERE "ActionType" = 92 AND "ParametersSchemaJson"::text = '[]';
+
+        -- CollectEventLogs (110). The endpoint handler accepts only this bounded allowlist.
+        INSERT INTO action_definitions
+            ("Id","DisplayName","Description","ActionType","ParametersSchemaJson","ApproverGroupIdsJson",
+             "AutoApprove","ApprovalWindowMinutes","MinApprovers","IsEnabled","CreatedAt","UpdatedAt","CreatedByUpn")
+        SELECT gen_random_uuid(),
+               'Collect Event Log Diagnostics',
+               'Collect a bounded, approved ZIP of recent Windows event log entries.',
+               110,
+               '[{"key":"Channels","displayName":"Channels","description":"Comma-separated allowlist: System, Application, Defender, WindowsUpdate","type":0,"required":true,"validationPattern":"^(System|Application|Defender|WindowsUpdate)(,(System|Application|Defender|WindowsUpdate)){0,3}$","defaultValue":"System,Application"},{"key":"Hours","displayName":"Lookback Hours","description":"Number of hours to collect (1-72)","type":1,"required":true,"validationPattern":"^([1-9]|[1-6][0-9]|7[0-2])$","defaultValue":"24"},{"key":"MaxEvents","displayName":"Maximum Events","description":"Maximum number of events (1-1000)","type":1,"required":true,"validationPattern":"^([1-9]|[1-9][0-9]{1,2}|1000)$","defaultValue":"500"},{"key":"IncludeInformation","displayName":"Include Information Events","description":"Include informational events in addition to warnings and errors","type":2,"required":true,"validationPattern":"^(true|false)$","defaultValue":"false"}]',
+               '[]', false, 60, 1, true, now(), now(), 'setup'
+        WHERE NOT EXISTS (SELECT 1 FROM action_definitions WHERE "ActionType" = 110);
         """;
 
     private static string SuperConnStr(string host, int port, string user, string pass,

@@ -176,4 +176,5 @@ internal sealed class NullNotificationService : INotificationService
     public Task<string?> TestAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task SendRequestSubmittedAsync(ElevationRequestDto request, CancellationToken ct = default) => Task.CompletedTask;
     public Task SendRequestReviewedAsync(ElevationRequestDto request, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SendRequestCompletedAsync(ElevationRequestDto request, CancellationToken ct = default) => Task.CompletedTask;
 }

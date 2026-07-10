@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.Identity.Web;
 using Microsoft.OpenApi.Models;
+using Raizen.Server.Api;
 using Raizen.Server.Api.Auth;
 using Raizen.Server.Core.Data;
 using Raizen.Server.Core.Services;
@@ -44,26 +45,8 @@ if (!isDev)
             "Run the setup wizard or update appsettings.Production.json with real credentials.");
 }
 
-// ── AuditHmacKey migration: auto-generate if missing from existing installs ──
-if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AuditHmacKey"]))
-{
-    var newKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-    builder.Configuration.AddInMemoryCollection([new("Security:AuditHmacKey", newKey)]);
-    var settingsPath = Path.Combine(builder.Environment.ContentRootPath, "appsettings.Production.json");
-    if (File.Exists(settingsPath))
-    {
-        try
-        {
-            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settingsPath))!;
-            var sec  = (node["Security"] as System.Text.Json.Nodes.JsonObject) ?? new System.Text.Json.Nodes.JsonObject();
-            sec["AuditHmacKey"] = newKey;
-            node["Security"] = sec;
-            File.WriteAllText(settingsPath, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-            Log.Warning("Security:AuditHmacKey was missing — auto-generated and saved to {Path}.", settingsPath);
-        }
-        catch (Exception ex) { Log.Warning(ex, "Security:AuditHmacKey was missing — generated for this session but could not persist to {Path}.", settingsPath); }
-    }
-}
+// Audit integrity fails closed: both services must be configured with one shared key.
+_ = DatabaseBootstrapper.RequireAuditHmacKey(builder.Configuration);
 
 // ── Database ─────────────────────────────────────────────────────────────────
 // AddDbContextFactory registers both the factory (singleton) and RaizenDbContext (scoped).
@@ -186,11 +169,14 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IBulkOperationService, BulkOperationService>();
 builder.Services.AddScoped<IEndpointService, EndpointService>();
+builder.Services.AddScoped<IDiagnosticBundleService, DiagnosticBundleService>();
+builder.Services.AddScoped<IMonitoringService, MonitoringService>();
 builder.Services.AddScoped<IRegistrationTokenService, RegistrationTokenService>();
 builder.Services.AddScoped<IAutoApprovalService, AutoApprovalService>();
 builder.Services.AddScoped<IAuditExportService, AuditExportService>();
 builder.Services.AddSingleton<ILoginLockoutService, LoginLockoutService>();
 builder.Services.AddHostedService<ExpiryBackgroundService>();
+builder.Services.AddHostedService<MonitoringBackgroundService>();
 
 // ── Health checks ────────────────────────────────────────────────────────────
 builder.Services.AddHealthChecks()
@@ -238,6 +224,13 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var ctx = scope.ServiceProvider.GetRequiredService<RaizenDbContext>();
+    await DatabaseBootstrapper.EnsureModelCreatedAsync(ctx);
+    await DatabaseBootstrapper.EnsureRmmFeaturesAsync(ctx);
+}
+
 // ── server_settings table (grace period persistence) ─────────────────────────
 using (var scope = app.Services.CreateScope())
 {
@@ -249,6 +242,35 @@ using (var scope = app.Services.CreateScope())
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         GRANT ALL ON TABLE server_settings TO CURRENT_USER;
+        """);
+    await DatabaseBootstrapper.ValidateAuditKeyConsistencyAsync(ctx, app.Configuration);
+
+    await ctx.Database.ExecuteSqlRawAsync("""
+        CREATE OR REPLACE FUNCTION raizen_guard_audit_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'DELETE' THEN
+                RAISE EXCEPTION 'audit_logs is append-only';
+            END IF;
+            IF current_setting('raizen.audit_repair', true) IS DISTINCT FROM 'on' THEN
+                RAISE EXCEPTION 'audit_logs may only be updated by the audited repair workflow';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'TR_audit_logs_append_only'
+                  AND tgrelid = 'audit_logs'::regclass
+            ) THEN
+                CREATE TRIGGER "TR_audit_logs_append_only"
+                    BEFORE UPDATE OR DELETE ON audit_logs
+                    FOR EACH ROW EXECUTE FUNCTION raizen_guard_audit_mutation();
+            END IF;
+        END $$;
+        REVOKE DELETE ON audit_logs FROM CURRENT_USER;
         """);
 }
 
@@ -281,8 +303,27 @@ using (var scope = app.Services.CreateScope())
         GRANT ALL ON TABLE request_approvals TO CURRENT_USER;
         CREATE INDEX IF NOT EXISTS "IX_request_approvals_RequestId"
             ON request_approvals ("RequestId");
-        CREATE INDEX IF NOT EXISTS "IX_request_approvals_RequestId_ApproverUpn"
-            ON request_approvals ("RequestId", "ApproverUpn");
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'IX_request_approvals_RequestId_ApproverUpn'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+                  AND indexdef LIKE '%lower(%'
+            ) THEN
+                IF EXISTS (
+                    SELECT 1 FROM request_approvals
+                    GROUP BY "RequestId", lower("ApproverUpn")
+                    HAVING count(*) > 1
+                ) THEN
+                    RAISE EXCEPTION 'Duplicate approver votes must be resolved before applying the unique approval index';
+                END IF;
+                EXECUTE 'DROP INDEX IF EXISTS "IX_request_approvals_RequestId_ApproverUpn"';
+                EXECUTE 'CREATE UNIQUE INDEX "IX_request_approvals_RequestId_ApproverUpn" '
+                     || 'ON request_approvals ("RequestId", lower("ApproverUpn"))';
+            END IF;
+        END $$;
         """);
 }
 
@@ -322,9 +363,10 @@ using (var scope = app.Services.CreateScope())
 using (var scope = app.Services.CreateScope())
 {
     var ctx = scope.ServiceProvider.GetRequiredService<RaizenDbContext>();
-    // EnsureCreatedAsync creates tables from the model without requiring EF migrations.
-    // Switch to MigrateAsync() once you run: dotnet ef migrations add InitialCreate
-    await ctx.Database.EnsureCreatedAsync();
+    await ctx.Database.ExecuteSqlRawAsync("""
+        ALTER TABLE IF EXISTS notification_settings
+            ADD COLUMN IF NOT EXISTS "NotifyOnCompleted" boolean NOT NULL DEFAULT true;
+        """);
 
     await ctx.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS registration_tokens (
@@ -339,7 +381,19 @@ using (var scope = app.Services.CreateScope())
             "CreatedBy" character varying(320)   NOT NULL DEFAULT '',
             CONSTRAINT "PK_registration_tokens" PRIMARY KEY ("Id")
         );
-        CREATE INDEX IF NOT EXISTS "IX_registration_tokens_TokenHash" ON registration_tokens ("TokenHash");
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'IX_registration_tokens_TokenHash'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+            ) THEN
+                EXECUTE 'DROP INDEX IF EXISTS "IX_registration_tokens_TokenHash"';
+                EXECUTE 'CREATE UNIQUE INDEX "IX_registration_tokens_TokenHash" '
+                     || 'ON registration_tokens ("TokenHash")';
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_IsActive"  ON registration_tokens ("IsActive");
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_ExpiresAt" ON registration_tokens ("ExpiresAt");
         """);

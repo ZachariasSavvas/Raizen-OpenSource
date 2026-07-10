@@ -78,4 +78,7 @@ public enum ActionType
     /// Only .exe, .msi, and .msc files are permitted.
     /// </summary>
     RunAsAdmin = 100,
+
+    /// <summary>Collect a bounded, approved set of Windows event logs and upload a diagnostic bundle.</summary>
+    CollectEventLogs = 110,
 }

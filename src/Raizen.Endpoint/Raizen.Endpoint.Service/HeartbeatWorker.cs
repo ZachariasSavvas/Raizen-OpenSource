@@ -14,6 +14,7 @@ namespace Raizen.Endpoint.Service;
 public sealed class HeartbeatWorker(
     ConfigLoader configLoader,
     IHttpClientFactory httpFactory,
+    EndpointHealthCollector healthCollector,
     AgentHealthState health,
     ILogger<HeartbeatWorker> log) : BackgroundService
 {
@@ -57,6 +58,7 @@ public sealed class HeartbeatWorker(
             LastUpdateStatus = snapshot.LastUpdateStatus,
             LastUpdateError = snapshot.LastUpdateError,
             LastSuccessfulUpdateAt = snapshot.LastSuccessfulUpdateAt,
+            Health = healthCollector.Collect(),
         };
 
         using var client = BuildClient(config);

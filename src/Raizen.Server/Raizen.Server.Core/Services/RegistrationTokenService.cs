@@ -26,7 +26,6 @@ public interface IRegistrationTokenService
 
 public sealed class RegistrationTokenService(
     IDbContextFactory<RaizenDbContext> dbFactory,
-    IEndpointService endpoints,
     IAuditService audit,
     ILogger<RegistrationTokenService> log) : IRegistrationTokenService
 {
@@ -68,6 +67,7 @@ public sealed class RegistrationTokenService(
         ExchangeTokenDto dto, string machineId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var hash = IEndpointService.HashApiKey(dto.RegistrationToken);
 
         // Single atomic UPDATE + RETURNING: eliminates TOCTOU race between SELECT and UPDATE.
@@ -92,17 +92,23 @@ public sealed class RegistrationTokenService(
             return null;
         }
 
+        if (updated.Count != 1)
+            throw new InvalidOperationException(
+                "Registration token hash is not unique; exchange was rolled back.");
+
         var token = updated[0];
 
         // Generate a new permanent ApiKey for this endpoint
         var newApiKey = IEndpointService.GenerateApiKey();
 
-        var reg = await endpoints.UpsertAsync(machineId, newApiKey, new RegisterEndpointDto
+        var reg = await EndpointService.UpsertAsync(db, machineId, newApiKey, new RegisterEndpointDto
         {
             MachineName  = dto.MachineName,
             OsVersion    = dto.OsVersion,
             AgentVersion = dto.AgentVersion,
         }, ct);
+
+        await transaction.CommitAsync(ct);
 
         await audit.LogAsync(
             "endpoint.registered-via-token",

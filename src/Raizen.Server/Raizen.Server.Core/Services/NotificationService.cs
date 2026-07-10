@@ -20,6 +20,14 @@ public interface INotificationService
     Task<string?> TestAsync(CancellationToken ct = default);
     Task SendRequestSubmittedAsync(ElevationRequestDto request, CancellationToken ct = default);
     Task SendRequestReviewedAsync(ElevationRequestDto request, CancellationToken ct = default);
+    Task SendRequestCompletedAsync(ElevationRequestDto request, CancellationToken ct = default);
+    Task SendMonitoringAlertAsync(
+        string machineName,
+        string ruleName,
+        Raizen.Shared.Enums.MonitoringSeverity severity,
+        string detail,
+        IReadOnlyCollection<string> recipients,
+        CancellationToken ct = default) => Task.CompletedTask;
 }
 
 public sealed class NotificationService(
@@ -131,6 +139,7 @@ public sealed class NotificationService(
             existing.NotifyOnSubmit   = settings.NotifyOnSubmit;
             existing.NotifyOnApproved = settings.NotifyOnApproved;
             existing.NotifyOnDenied   = settings.NotifyOnDenied;
+            existing.NotifyOnCompleted = settings.NotifyOnCompleted;
             existing.UpdatedAt        = DateTimeOffset.UtcNow;
             existing.UpdatedBy        = actorUpn;
         }
@@ -234,13 +243,93 @@ public sealed class NotificationService(
         await TrySendAsync(cfg, $"[Raizen] Request {statusText}: {req.ActionDisplayName} on {req.TargetMachine}", html, ct);
     }
 
+    public async Task SendRequestCompletedAsync(ElevationRequestDto req, CancellationToken ct = default)
+    {
+        var cfg = await GetAsync(ct);
+        if (!cfg.Enabled || !cfg.NotifyOnCompleted) return;
+
+        var succeeded = req.Status == Raizen.Shared.Enums.RequestStatus.Succeeded;
+        if (!succeeded && req.Status != Raizen.Shared.Enums.RequestStatus.Failed) return;
+
+        var statusColour = succeeded ? "#059669" : "#dc2626";
+        var statusText = succeeded ? "Completed" : "Failed";
+        var outcome = succeeded
+            ? (string.IsNullOrWhiteSpace(req.ExecutionResult) ? "Completed successfully." : req.ExecutionResult)
+            : (string.IsNullOrWhiteSpace(req.ExecutionError) ? "Execution failed." : req.ExecutionError);
+
+        var html = $"""
+            <table style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111;width:100%;max-width:620px;border-collapse:collapse">
+              <tr><td style="background:#10164A;padding:20px 28px">
+                <span style="color:#fff;font-size:18px;font-weight:700">Raizen: Request {statusText}</span>
+              </td></tr>
+              <tr><td style="padding:24px 28px">
+                <p style="margin:0 0 16px">
+                  An elevation request has
+                  <strong style="color:{statusColour}">{(succeeded ? "completed successfully" : "failed during execution")}</strong>.
+                </p>
+                <table style="width:100%;border-collapse:collapse;font-size:13px">
+                  {Row("Action",     req.ActionDisplayName)}
+                  {Row("Requester",  req.RequesterUpn)}
+                  {Row("Machine",    req.TargetMachine)}
+                  {Row("Outcome",    outcome)}
+                  {Row("Request ID", req.Id.ToString())}
+                </table>
+              </td></tr>
+            </table>
+            """;
+
+        await TrySendAsync(cfg, $"[Raizen] Request {statusText}: {req.ActionDisplayName} on {req.TargetMachine}", html, ct);
+    }
+
+    public async Task SendMonitoringAlertAsync(
+        string machineName,
+        string ruleName,
+        Raizen.Shared.Enums.MonitoringSeverity severity,
+        string detail,
+        IReadOnlyCollection<string> recipients,
+        CancellationToken ct = default)
+    {
+        var cfg = await GetAsync(ct);
+        if (!cfg.Enabled) return;
+
+        var targetRecipients = recipients.Count > 0 ? recipients : GetRecipients(cfg);
+        if (targetRecipients.Count == 0) return;
+
+        var html = $"""
+            <table style="font-family:system-ui,sans-serif;font-size:14px;color:#111;width:100%;max-width:620px;border-collapse:collapse">
+              <tr><td style="background:#10164A;padding:20px 28px;color:#fff;font-size:18px;font-weight:700">Raizen monitoring alert</td></tr>
+              <tr><td style="padding:24px 28px">
+                <table style="width:100%;border-collapse:collapse;font-size:13px">
+                  {Row("Severity", severity.ToString())}
+                  {Row("Rule", ruleName)}
+                  {Row("Machine", machineName)}
+                  {Row("Detail", detail)}
+                  {Row("Detected", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm"))}
+                </table>
+              </td></tr>
+            </table>
+            """;
+
+        await TrySendAsync(
+            cfg,
+            $"[Raizen] {severity}: {ruleName} on {machineName}",
+            html,
+            ct,
+            targetRecipients);
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    private async Task TrySendAsync(NotificationSettings cfg, string subject, string html, CancellationToken ct)
+    private async Task TrySendAsync(
+        NotificationSettings cfg,
+        string subject,
+        string html,
+        CancellationToken ct,
+        IReadOnlyCollection<string>? recipients = null)
     {
         try
         {
-            var msg = BuildMessage(cfg, subject, html);
+            var msg = BuildMessage(cfg, subject, html, recipients);
             await SendAsync(cfg, DecryptSmtpPassword(cfg.SmtpPassword), msg, ct);
         }
         catch (Exception ex)
@@ -249,13 +338,17 @@ public sealed class NotificationService(
         }
     }
 
-    private static MimeMessage BuildMessage(NotificationSettings cfg, string subject, string html)
+    private static MimeMessage BuildMessage(
+        NotificationSettings cfg,
+        string subject,
+        string html,
+        IReadOnlyCollection<string>? recipients = null)
     {
         var msg = new MimeMessage();
         msg.From.Add(new MailboxAddress(cfg.FromDisplayName, cfg.FromAddress));
         msg.Subject = subject;
 
-        foreach (var addr in GetRecipients(cfg))
+        foreach (var addr in recipients ?? GetRecipients(cfg))
             msg.To.Add(MailboxAddress.Parse(addr));
 
         msg.Body = new TextPart(MimeKit.Text.TextFormat.Html) { Text = html };

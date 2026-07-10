@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
+using Raizen.Server.Setup.Installer;
 
 namespace Raizen.Server.Setup;
 
 public class WizardState
 {
+    public WizardState() => ConfigWriter.LoadExistingSecrets(this);
+
     // ── Database ──────────────────────────────────────────────────────────────
     public string PgHost          { get; set; } = "localhost";
     public int    PgPort          { get; set; } = 5432;
@@ -22,6 +25,7 @@ public class WizardState
     public string PublicApiUrl  { get; set; } = $"https://{Environment.MachineName}:5001";
     public string EncryptionKey { get; set; } = GenerateBase64Key(32);
     public string AuditHmacKey  { get; set; } = GenerateBase64Key(32);
+    public string? ExistingConfigError { get; set; }
 
     // ── TLS certificate (generated during install) ────────────────────────
     public string CertPassword        { get; set; } = GeneratePassword(20);

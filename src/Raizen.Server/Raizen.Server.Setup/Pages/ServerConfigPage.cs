@@ -132,6 +132,8 @@ public class ServerConfigPage : WizardPage
 
     public override string? Validate()
     {
+        if (!string.IsNullOrWhiteSpace(_state.ExistingConfigError))
+            return _state.ExistingConfigError;
         if (string.IsNullOrWhiteSpace(_hostname.Text))
             return "Server hostname or IP address is required.";
         if (!int.TryParse(_apiPort.Text, out var api) || api < 1 || api > 65535)

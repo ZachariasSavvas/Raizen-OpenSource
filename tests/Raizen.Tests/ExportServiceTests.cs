@@ -4,6 +4,9 @@ using Raizen.Server.Core.Data;
 using Raizen.Server.Core.Models;
 using Raizen.Server.Core.Services;
 using Raizen.Shared.Enums;
+using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
 
 namespace Raizen.Tests;
 
@@ -90,6 +93,23 @@ public sealed class ExportServiceTests
         var ws = OpenSheet(bytes);
         // Row 1 = header; count rows that have a non-empty Request ID (col 1)
         return ws.RowsUsed().Skip(1).Count(r => !string.IsNullOrWhiteSpace(r.Cell(1).GetString()));
+    }
+
+    private static string ReadZipText(byte[] bytes, string entryName)
+    {
+        using var ms = new MemoryStream(bytes);
+        using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+        var entry = zip.GetEntry(entryName) ?? throw new InvalidOperationException($"Missing zip entry: {entryName}");
+        using var stream = entry.Open();
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    private static bool HasZipEntry(byte[] bytes, string entryName)
+    {
+        using var ms = new MemoryStream(bytes);
+        using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+        return zip.GetEntry(entryName) is not null;
     }
 
     // ── Test 1: 3-month period only returns recent records ────────────────────
@@ -209,5 +229,126 @@ public sealed class ExportServiceTests
         using var ms = new MemoryStream(bytes);
         var wb = new XLWorkbook(ms);
         Assert.Equal("Request ID", wb.Worksheet("Elevation Requests").Cell(1, 1).GetString());
+    }
+
+    [Fact]
+    public async Task RequestEvidenceBundle_IncludesRequestCommentsAuditAndWorkbook()
+    {
+        var factory = CreateDbFactory();
+        using var db = factory.CreateDbContext();
+        var (action, endpoint) = SeedBase(db);
+
+        var request = MakeRequest(action, endpoint, DateTimeOffset.UtcNow.AddMinutes(-30));
+        request.Id = Guid.NewGuid();
+        db.ElevationRequests.Add(request);
+        db.RequestApprovals.Add(new RequestApproval
+        {
+            RequestId = request.Id,
+            ApproverUpn = "approver@contoso.com",
+            Approved = true,
+            Note = "Approved with evidence",
+        });
+        db.RequestComments.Add(new RequestComment
+        {
+            RequestId = request.Id,
+            AuthorUpn = "alice@contoso.com",
+            AuthorDisplayName = "Alice Smith",
+            Body = "Adding the missing ticket context.",
+        });
+        db.AuditLogs.Add(new AuditLog
+        {
+            RequestId = request.Id,
+            Event = "request.approved",
+            ActorUpn = "approver@contoso.com",
+            TargetMachine = endpoint.MachineName,
+            Detail = "Approved with evidence",
+            PreviousHash = "previous",
+            RowHash = "current",
+        });
+        await db.SaveChangesAsync();
+
+        var svc = new ExportService(factory);
+        var bundle = await svc.ExportRequestEvidenceBundleAsync(request.Id);
+
+        Assert.NotNull(bundle);
+        Assert.Equal("application/zip", bundle.ContentType);
+        Assert.Contains(request.Id.ToString(), bundle.FileName);
+        Assert.True(HasZipEntry(bundle.Bytes, "manifest.json"));
+        Assert.True(HasZipEntry(bundle.Bytes, "request-evidence.json"));
+        Assert.True(HasZipEntry(bundle.Bytes, "request-evidence.xlsx"));
+
+        var json = ReadZipText(bundle.Bytes, "request-evidence.json");
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("request-evidence", doc.RootElement.GetProperty("bundleType").GetString());
+        Assert.Equal(request.Id.ToString(), doc.RootElement.GetProperty("request").GetProperty("id").GetString());
+        Assert.Single(doc.RootElement.GetProperty("comments").EnumerateArray());
+        Assert.Single(doc.RootElement.GetProperty("auditEntries").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task RequestEvidenceBundle_MissingRequest_ReturnsNull()
+    {
+        var factory = CreateDbFactory();
+        var svc = new ExportService(factory);
+
+        var bundle = await svc.ExportRequestEvidenceBundleAsync(Guid.NewGuid());
+
+        Assert.Null(bundle);
+    }
+
+    [Fact]
+    public async Task EndpointDiagnosticsBundle_RedactsApiKeyHashesAndIncludesHealth()
+    {
+        var factory = CreateDbFactory();
+        using var db = factory.CreateDbContext();
+        var (action, endpoint) = SeedBase(db);
+
+        endpoint.ApiKeyHash = "secret-api-key-hash-must-not-export";
+        endpoint.AgentVersion = "1.5.4";
+        endpoint.OsVersion = "Windows 11";
+        endpoint.LastSeenAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        endpoint.PollSigningConfigured = false;
+        endpoint.LastPollError = "Poll response signature verification failed.";
+
+        var request = MakeRequest(action, endpoint, DateTimeOffset.UtcNow.AddMinutes(-20));
+        db.ElevationRequests.Add(request);
+        db.AuditLogs.Add(new AuditLog
+        {
+            RequestId = request.Id,
+            Event = "endpoint.heartbeat",
+            ActorUpn = "machine:machine-001",
+            TargetMachine = endpoint.MachineName,
+            Detail = "Heartbeat recorded",
+        });
+        await db.SaveChangesAsync();
+
+        var svc = new ExportService(factory);
+        var bundle = await svc.ExportEndpointDiagnosticsBundleAsync(endpoint.Id, "1.5.5");
+
+        Assert.NotNull(bundle);
+        Assert.Equal("application/zip", bundle.ContentType);
+        Assert.True(HasZipEntry(bundle.Bytes, "manifest.json"));
+        Assert.True(HasZipEntry(bundle.Bytes, "endpoint-diagnostics.json"));
+        Assert.True(HasZipEntry(bundle.Bytes, "endpoint-diagnostics.xlsx"));
+
+        var json = ReadZipText(bundle.Bytes, "endpoint-diagnostics.json");
+        Assert.DoesNotContain("secret-api-key-hash-must-not-export", json);
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("endpoint-diagnostics", doc.RootElement.GetProperty("bundleType").GetString());
+        Assert.Equal(1, doc.RootElement.GetProperty("endpointCount").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("counts").GetProperty("pollSigningMissing").GetInt32());
+        Assert.Single(doc.RootElement.GetProperty("recentRequests").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task EndpointDiagnosticsBundle_MissingEndpoint_ReturnsNull()
+    {
+        var factory = CreateDbFactory();
+        var svc = new ExportService(factory);
+
+        var bundle = await svc.ExportEndpointDiagnosticsBundleAsync(Guid.NewGuid(), "1.5.5");
+
+        Assert.Null(bundle);
     }
 }

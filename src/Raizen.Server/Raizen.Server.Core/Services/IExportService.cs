@@ -1,5 +1,7 @@
 namespace Raizen.Server.Core.Services;
 
+public sealed record ExportBundle(string FileName, string ContentType, byte[] Bytes);
+
 public interface IExportService
 {
     /// <summary>
@@ -16,5 +18,20 @@ public interface IExportService
         string? userFilter,
         DateTime? from,
         DateTime? to,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a ZIP evidence bundle for a single request, including request data,
+    /// approvals, comments, related audit events, and a human-readable workbook.
+    /// </summary>
+    Task<ExportBundle?> ExportRequestEvidenceBundleAsync(Guid requestId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a ZIP diagnostics bundle for one endpoint or the fleet health view.
+    /// Secrets and API key hashes are intentionally excluded.
+    /// </summary>
+    Task<ExportBundle?> ExportEndpointDiagnosticsBundleAsync(
+        Guid? endpointId,
+        string? latestAgentVersion,
         CancellationToken ct = default);
 }

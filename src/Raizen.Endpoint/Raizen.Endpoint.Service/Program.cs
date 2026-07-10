@@ -114,11 +114,13 @@ try
             services.AddSingleton<IActionHandler, DisableLocalUserHandler>();
             services.AddSingleton<IActionHandler, AddTrustedCertificateHandler>();
             services.AddSingleton<IActionHandler, FirewallRuleHandler>();
+            services.AddSingleton<IActionHandler, CollectEventLogsHandler>();
 
             services.AddSingleton<ActionHandlerRegistry>();
             services.AddSingleton<OfflineQueueService>();
             services.AddSingleton<AgentUpdateService>();
             services.AddSingleton<AgentHealthState>();
+            services.AddSingleton<EndpointHealthCollector>();
 
             // ── Background workers ────────────────────────────────────────────
             // RegistrationWorker runs first and blocks until the token exchange

@@ -136,6 +136,50 @@ public sealed class EndpointService(IDbContextFactory<RaizenDbContext> dbFactory
         reg.LastUpdateError = TrimHealth(dto.LastUpdateError);
         reg.LastSuccessfulUpdateAt = dto.LastSuccessfulUpdateAt;
 
+        if (dto.Health is not null)
+        {
+            reg.HealthReportedAt = dto.Health.CollectedAt;
+            reg.UptimeSeconds = dto.Health.UptimeSeconds;
+            reg.CpuLoadPercent = dto.Health.CpuLoadPercent;
+            reg.MemoryUsedPercent = dto.Health.MemoryUsedPercent;
+            reg.SystemDriveFreePercent = dto.Health.SystemDriveFreePercent;
+            reg.SystemDriveFreeBytes = dto.Health.SystemDriveFreeBytes;
+            reg.LoggedOnUser = TrimHealth(dto.Health.LoggedOnUser, 320);
+            reg.IpAddressesJson = JsonSerializer.Serialize(dto.Health.IpAddresses.Take(16), JsonOpts);
+            reg.PendingReboot = dto.Health.PendingReboot;
+            reg.DefenderEnabled = dto.Health.DefenderEnabled;
+            reg.DefenderSignatureAgeDays = dto.Health.DefenderSignatureAgeDays;
+            reg.BitLockerProtected = dto.Health.BitLockerProtected;
+            reg.HealthCollectionError = TrimHealth(dto.Health.CollectionError);
+            if (dto.Health.ProcessesCollected)
+            {
+                reg.ProcessInventoryReportedAt = dto.Health.CollectedAt;
+                reg.ProcessesJson = JsonSerializer.Serialize(dto.Health.Processes
+                    .Take(100)
+                    .Select(x => new EndpointProcessDto
+                    {
+                        ProcessId = x.ProcessId,
+                        Name = TrimHealth(x.Name, 260) ?? "unknown",
+                        WorkingSetBytes = Math.Max(0, x.WorkingSetBytes),
+                        TotalProcessorTimeSeconds = Math.Max(0, x.TotalProcessorTimeSeconds),
+                        SessionId = x.SessionId,
+                    }), JsonOpts);
+            }
+            if (dto.Health.ServicesCollected)
+            {
+                reg.ServiceInventoryReportedAt = dto.Health.CollectedAt;
+                reg.ServicesJson = JsonSerializer.Serialize(dto.Health.Services
+                    .Take(500)
+                    .Select(x => new EndpointServiceDto
+                    {
+                        Name = TrimHealth(x.Name, 256) ?? "unknown",
+                        DisplayName = TrimHealth(x.DisplayName, 256) ?? x.Name,
+                        Status = TrimHealth(x.Status, 32) ?? "Unknown",
+                        StartMode = TrimHealth(x.StartMode, 32) ?? "Unknown",
+                    }), JsonOpts);
+            }
+        }
+
         if (wasAutoDisabled)
         {
             reg.IsEnabled    = true;
@@ -160,6 +204,16 @@ public sealed class EndpointService(IDbContextFactory<RaizenDbContext> dbFactory
         string machineId, string newApiKey, RegisterEndpointDto dto, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await UpsertAsync(db, machineId, newApiKey, dto, ct);
+    }
+
+    internal static async Task<EndpointRegistration> UpsertAsync(
+        RaizenDbContext db,
+        string machineId,
+        string newApiKey,
+        RegisterEndpointDto dto,
+        CancellationToken ct = default)
+    {
         var existing = await db.EndpointRegistrations
             .FirstOrDefaultAsync(e => e.MachineId == machineId, ct);
 
@@ -336,6 +390,26 @@ public sealed class EndpointService(IDbContextFactory<RaizenDbContext> dbFactory
             LastUpdateStatus = e.LastUpdateStatus,
             LastUpdateError = e.LastUpdateError,
             LastSuccessfulUpdateAt = e.LastSuccessfulUpdateAt,
+            Health = e.HealthReportedAt.HasValue ? new EndpointHealthSnapshotDto
+            {
+                CollectedAt = e.HealthReportedAt.Value,
+                UptimeSeconds = e.UptimeSeconds ?? 0,
+                CpuLoadPercent = e.CpuLoadPercent,
+                MemoryUsedPercent = e.MemoryUsedPercent,
+                SystemDriveFreePercent = e.SystemDriveFreePercent,
+                SystemDriveFreeBytes = e.SystemDriveFreeBytes,
+                LoggedOnUser = e.LoggedOnUser,
+                IpAddresses = DeserializeIpAddresses(e.IpAddressesJson),
+                PendingReboot = e.PendingReboot,
+                DefenderEnabled = e.DefenderEnabled,
+                DefenderSignatureAgeDays = e.DefenderSignatureAgeDays,
+                BitLockerProtected = e.BitLockerProtected,
+                ProcessesCollected = e.ProcessInventoryReportedAt.HasValue,
+                ServicesCollected = e.ServiceInventoryReportedAt.HasValue,
+                Processes = DeserializeList<EndpointProcessDto>(e.ProcessesJson),
+                Services = DeserializeList<EndpointServiceDto>(e.ServicesJson),
+                CollectionError = e.HealthCollectionError,
+            } : null,
         };
     }
 
@@ -344,5 +418,19 @@ public sealed class EndpointService(IDbContextFactory<RaizenDbContext> dbFactory
         if (string.IsNullOrWhiteSpace(value)) return null;
         value = value.Trim();
         return value.Length <= max ? value : value[..max];
+    }
+
+    private static List<string> DeserializeIpAddresses(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<string>>(json, JsonOpts) ?? []; }
+        catch { return []; }
+    }
+
+    private static List<T> DeserializeList<T>(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<T>>(json, JsonOpts) ?? []; }
+        catch { return []; }
     }
 }

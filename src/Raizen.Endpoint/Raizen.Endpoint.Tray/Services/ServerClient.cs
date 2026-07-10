@@ -57,7 +57,9 @@ public sealed class ServerClient : IDisposable
         dto.Parameters["__requester_display_name"] = requesterDisplayName;
 
         var resp = await _http.PostAsJsonAsync("api/v1/requests", dto, JsonOpts, ct);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadErrorAsync(resp, ct)
+                ?? $"Request could not be submitted. Server returned {(int)resp.StatusCode} {resp.ReasonPhrase}.");
         return await resp.Content.ReadFromJsonAsync<ElevationRequestDto>(JsonOpts, ct)
                ?? throw new InvalidOperationException("Empty response from server.");
     }
@@ -131,6 +133,28 @@ public sealed class ServerClient : IDisposable
         client.DefaultRequestHeaders.Add("X-Raizen-MachineId", config.MachineId);
         client.DefaultRequestHeaders.Add("X-Raizen-ApiKey", config.ApiKey);
         return client;
+    }
+
+    private static async Task<string?> ReadErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var text = await response.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(text)) return null;
+
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("error", out var error) &&
+                error.ValueKind == JsonValueKind.String)
+            {
+                return error.GetString();
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
     }
 
     public void Dispose() => _http.Dispose();

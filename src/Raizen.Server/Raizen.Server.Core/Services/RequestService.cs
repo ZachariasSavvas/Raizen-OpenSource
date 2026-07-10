@@ -17,6 +17,7 @@ public sealed class RequestService(
     IConfiguration config) : IRequestService
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+    private const int MaxCommentLength = 4000;
 
     public async Task<ElevationRequestDto> SubmitAsync(
         SubmitElevationRequestDto dto,
@@ -184,6 +185,7 @@ public sealed class RequestService(
         string reviewerUpn,
         CancellationToken ct = default)
     {
+        reviewerUpn = NormalizeApproverUpn(reviewerUpn);
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var request = await db.ElevationRequests
             .Include(x => x.ActionDefinition)
@@ -226,7 +228,8 @@ public sealed class RequestService(
         }
 
         // Approval path
-        if (request.Approvals.Any(a => a.Approved && a.ApproverUpn == reviewerUpn))
+        if (request.Approvals.Any(a => a.Approved
+            && string.Equals(a.ApproverUpn, reviewerUpn, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("You have already approved this request.");
 
         db.RequestApprovals.Add(new RequestApproval
@@ -238,7 +241,21 @@ public sealed class RequestService(
         });
 
         // Persist the vote first so the DB count is accurate under concurrent access
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            var duplicate = await db.RequestApprovals
+                .AsNoTracking()
+                .AnyAsync(a => a.RequestId == requestId
+                    && a.Approved
+                    && a.ApproverUpn.ToLower() == reviewerUpn, ct);
+            if (duplicate)
+                throw new InvalidOperationException("You have already approved this request.");
+            throw;
+        }
 
         // Query the DB directly instead of relying on in-memory navigation fixup,
         // which can be stale if two approvers submit simultaneously.
@@ -367,7 +384,9 @@ public sealed class RequestService(
         await audit.LogAsync(evt, $"endpoint:{request.Endpoint.MachineName}", result.RequestId,
             request.Endpoint.MachineName, detail, ct);
 
-        return Map(request, request.ActionDefinition, request.Endpoint);
+        var mapped = Map(request, request.ActionDefinition, request.Endpoint);
+        try { await notifications.SendRequestCompletedAsync(mapped, ct); } catch { }
+        return mapped;
     }
 
     public async Task<ElevationRequestDto?> MarkAsExecutingAsync(Guid requestId, Guid callerRegistrationId, CancellationToken ct = default)
@@ -463,8 +482,11 @@ public sealed class RequestService(
         CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (string.IsNullOrWhiteSpace(dto.Body))
+        var body = dto.Body?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(body))
             throw new ArgumentException("Comment body cannot be empty.");
+        if (body.Length > MaxCommentLength)
+            throw new ArgumentException($"Comment is too long. Keep it under {MaxCommentLength} characters.");
 
         var exists = await db.ElevationRequests.AnyAsync(r => r.Id == requestId, ct);
         if (!exists)
@@ -476,7 +498,7 @@ public sealed class RequestService(
             AuthorUpn          = authorUpn,
             AuthorDisplayName  = authorDisplayName,
             IsAdmin            = isAdmin,
-            Body               = dto.Body.Trim(),
+            Body               = body,
         };
         db.RequestComments.Add(comment);
         await db.SaveChangesAsync(ct);
@@ -542,4 +564,12 @@ public sealed class RequestService(
         Body                = c.Body,
         CreatedAt           = c.CreatedAt,
     };
+
+    private static string NormalizeApproverUpn(string reviewerUpn)
+    {
+        var normalized = reviewerUpn.Trim().ToLowerInvariant();
+        if (normalized.Length == 0)
+            throw new ArgumentException("Reviewer identity is required.", nameof(reviewerUpn));
+        return normalized;
+    }
 }

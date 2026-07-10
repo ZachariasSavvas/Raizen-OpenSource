@@ -96,6 +96,53 @@ public sealed class SecurityFixTests : IDisposable
         return (def, ep);
     }
 
+    [Fact]
+    public async Task DualApproval_SameReviewerWithDifferentCasing_IsRejected()
+    {
+        var (def, ep) = await SeedAsync(minApprovers: 2);
+        var submitted = await _requestService.SubmitAsync(
+            new SubmitElevationRequestDto
+            {
+                ActionDefinitionId = def.Id,
+                Justification = "test",
+            },
+            "requester@corp.com", "Requester", ep.Id);
+
+        var first = await _requestService.ReviewAsync(
+            submitted.Id,
+            new ReviewRequestDto { Approved = true },
+            "Approver@Corp.com");
+
+        Assert.Equal(RequestStatus.Pending, first.Status);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _requestService.ReviewAsync(
+                submitted.Id,
+                new ReviewRequestDto { Approved = true },
+                " approver@corp.com "));
+
+        Assert.Contains("already approved", ex.Message);
+        var approvals = await _db.RequestApprovals
+            .Where(x => x.RequestId == submitted.Id)
+            .ToListAsync();
+        Assert.Single(approvals);
+        Assert.Equal("approver@corp.com", approvals[0].ApproverUpn);
+    }
+
+    [Fact]
+    public void SecuritySensitiveHashesAndVotes_HaveUniqueModelIndexes()
+    {
+        var approvalType = _db.Model.FindEntityType(typeof(RequestApproval))!;
+        var approvalIndex = approvalType.GetIndexes().Single(x =>
+            x.Properties.Select(p => p.Name)
+                .SequenceEqual(new[] { nameof(RequestApproval.RequestId), nameof(RequestApproval.ApproverUpn) }));
+        Assert.True(approvalIndex.IsUnique);
+
+        var tokenType = _db.Model.FindEntityType(typeof(RegistrationToken))!;
+        var tokenIndex = tokenType.GetIndexes().Single(x =>
+            x.Properties.Single().Name == nameof(RegistrationToken.TokenHash));
+        Assert.True(tokenIndex.IsUnique);
+    }
+
     // =====================================================================
     // Fix 1: Parameter override merge (not replace)
     // =====================================================================
@@ -362,6 +409,8 @@ public sealed class SecurityFixTests : IDisposable
         public Task SendRequestSubmittedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
             Task.CompletedTask;
         public Task SendRequestReviewedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
+            Task.CompletedTask;
+        public Task SendRequestCompletedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
             Task.CompletedTask;
     }
 

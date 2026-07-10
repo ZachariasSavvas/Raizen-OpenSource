@@ -2,6 +2,9 @@
 @attribute [Authorize(Policy = "Admin")]
 @inject IEndpointService EndpointSvc
 @inject IRequestService RequestService
+@inject IActionCatalogService ActionCatalog
+@inject IDiagnosticBundleService DiagnosticBundles
+@inject AuthenticationStateProvider Auth
 @inject NavigationManager Nav
 @using Raizen.Shared.DTOs
 @using Raizen.Shared.Enums
@@ -69,6 +72,101 @@ else
     </div>
 
     @* ── Filter bar ───────────────────────────────────────────────────── *@
+    @if (_endpoint.Health is { } health)
+    {
+        <div class="rz-card mb-4">
+            <div class="rz-card-header"><i class="bi bi-heart-pulse"></i> Current health <span class="text-muted ms-2 small">@FormatAgo(health.CollectedAt)</span></div>
+            <div class="rz-card-body">
+                <div class="row g-3">
+                    <div class="col-6 col-lg-3"><div class="text-muted small">CPU</div><strong>@FormatPercent(health.CpuLoadPercent)</strong></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">Memory used</div><strong>@FormatPercent(health.MemoryUsedPercent)</strong></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">System drive free</div><strong>@FormatPercent(health.SystemDriveFreePercent)</strong><div class="text-muted small">@FormatBytes(health.SystemDriveFreeBytes)</div></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">Uptime</div><strong>@TimeSpan.FromSeconds(health.UptimeSeconds).ToString(@"d\.hh\:mm")</strong></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">Defender</div><strong class="@(health.DefenderEnabled == false ? "text-danger" : "")">@FormatBool(health.DefenderEnabled, "Protected", "Disabled")</strong><div class="text-muted small">Signatures: @(health.DefenderSignatureAgeDays?.ToString() ?? "?") days</div></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">BitLocker</div><strong class="@(health.BitLockerProtected == false ? "text-warning" : "")">@FormatBool(health.BitLockerProtected, "Protected", "Not protected")</strong></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">Pending reboot</div><strong class="@(health.PendingReboot ? "text-warning" : "")">@(health.PendingReboot ? "Yes" : "No")</strong></div>
+                    <div class="col-6 col-lg-3"><div class="text-muted small">Logged-on user</div><strong>@(health.LoggedOnUser ?? "None")</strong></div>
+                </div>
+                <div class="mt-3 text-muted small"><i class="bi bi-router me-1"></i>@(health.IpAddresses.Count == 0 ? "No IP addresses reported" : string.Join(", ", health.IpAddresses))</div>
+                @if (!string.IsNullOrWhiteSpace(health.CollectionError)) { <div class="alert alert-warning py-2 mt-3 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>@health.CollectionError</div> }
+            </div>
+        </div>
+
+        <div class="rz-card mb-4">
+            <div class="rz-card-header d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-list-task"></i> Process and service inventory</span>
+                <input class="form-control form-control-sm" style="max-width:260px" @bind="_inventorySearch" @bind:event="oninput" placeholder="Filter inventory" />
+            </div>
+            <div class="rz-card-body pb-0">
+                <nav class="nav nav-tabs" aria-label="Endpoint inventory">
+                    <button class="nav-link @(_inventoryView == "processes" ? "active" : "")" @onclick="ShowProcesses">Processes (@health.Processes.Count)</button>
+                    <button class="nav-link @(_inventoryView == "services" ? "active" : "")" @onclick="ShowServices">Services (@health.Services.Count)</button>
+                </nav>
+            </div>
+            <div style="overflow-x:auto;max-height:480px;overflow-y:auto">
+                @if (_inventoryView == "processes")
+                {
+                    @if (!health.ProcessesCollected) { <div class="rz-empty">Waiting for process inventory from endpoint version 1.5.7 or later.</div> }
+                    else
+                    {
+                        <table class="rz-table">
+                            <thead><tr><th>Process</th><th>PID</th><th>Memory</th><th>CPU time</th><th>Session</th></tr></thead>
+                            <tbody>
+                            @foreach (var process in FilterProcesses(health))
+                            {
+                                <tr><td><strong>@process.Name</strong></td><td>@process.ProcessId</td><td>@FormatBytes(process.WorkingSetBytes)</td><td>@TimeSpan.FromSeconds(process.TotalProcessorTimeSeconds).ToString(@"d\.hh\:mm\:ss")</td><td>@process.SessionId</td></tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                }
+                else
+                {
+                    @if (!health.ServicesCollected) { <div class="rz-empty">Waiting for service inventory from endpoint version 1.5.7 or later.</div> }
+                    else
+                    {
+                        <table class="rz-table">
+                            <thead><tr><th>Service</th><th>Service name</th><th>Status</th><th>Start mode</th></tr></thead>
+                            <tbody>
+                            @foreach (var service in FilterServices(health))
+                            {
+                                <tr><td><strong>@service.DisplayName</strong></td><td><code>@service.Name</code></td><td><span class="@(service.Status.Equals("Running", StringComparison.OrdinalIgnoreCase) ? "text-success" : "text-warning")">@service.Status</span></td><td>@service.StartMode</td></tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <div class="rz-card mb-4">
+        <div class="rz-card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-file-earmark-zip"></i> Event-log diagnostic bundles</span>
+            <button class="rz-btn rz-btn-primary rz-btn-sm" @onclick="RequestDiagnostics" disabled="@(_requestingDiagnostics || _diagnosticAction is null || !IsOnline(_endpoint))">
+                @if (_requestingDiagnostics) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                Request bundle
+            </button>
+        </div>
+        <div class="rz-card-body">
+            <p class="text-muted small">Collects up to 500 warning/error events from System, Application, Defender, and Windows Update for the last 24 hours. Approval is still required.</p>
+            @if (_diagnosticMessage is not null) { <div class="alert alert-info py-2">@_diagnosticMessage</div> }
+            @if (_bundles.Count == 0) { <div class="text-muted small">No active bundles. Bundles expire after seven days.</div> }
+            else
+            {
+                <div class="d-flex flex-column gap-2">
+                @foreach (var bundle in _bundles)
+                {
+                    <div class="d-flex align-items-center justify-content-between border rounded p-2">
+                        <div><strong>@bundle.FileName</strong><div class="text-muted small">@bundle.EventCount events · @FormatBytes(bundle.SizeBytes) · expires @bundle.ExpiresAt.ToLocalTime().ToString("g")</div></div>
+                        <a class="rz-btn rz-btn-ghost rz-btn-sm" href="@($"export/diagnostic-bundles/{bundle.Id}")"><i class="bi bi-download"></i> Download</a>
+                    </div>
+                }
+                </div>
+            }
+        </div>
+    </div>
+
     <div class="rz-filter-bar">
         <div>
             <label class="form-label form-label-sm mb-1 text-muted" style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Status</label>
@@ -179,11 +277,61 @@ else
     private DateOnly? _fromFilter;
     private DateOnly? _toFilter;
     private int _page = 1;
+    private List<DiagnosticBundleDto> _bundles = [];
+    private ActionDefinitionDto? _diagnosticAction;
+    private bool _requestingDiagnostics;
+    private string? _diagnosticMessage;
+    private string _actorUpn = "admin";
+    private string _inventoryView = "processes";
+    private string _inventorySearch = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
         _endpoint = await EndpointSvc.GetByIdAsync(Id);
+        var authState = await Auth.GetAuthenticationStateAsync();
+        _actorUpn = authState.User.Identity?.Name ?? "admin";
+        _diagnosticAction = (await ActionCatalog.ListAsync())
+            .FirstOrDefault(x => x.ActionType == ActionType.CollectEventLogs && x.IsEnabled);
+        _bundles = await DiagnosticBundles.ListAsync(Id);
         await Load();
+    }
+
+    private async Task RequestDiagnostics()
+    {
+        if (_endpoint is null || _diagnosticAction is null) return;
+
+        _requestingDiagnostics = true;
+        _diagnosticMessage = null;
+        try
+        {
+            var request = await RequestService.SubmitAsync(
+                new SubmitElevationRequestDto
+                {
+                    ActionDefinitionId = _diagnosticAction.Id,
+                    Justification = $"Collect diagnostic event logs for {_endpoint.MachineName}.",
+                    Parameters = new Dictionary<string, string>
+                    {
+                        ["Channels"] = "System,Application,Defender,WindowsUpdate",
+                        ["Hours"] = "24",
+                        ["MaxEvents"] = "500",
+                        ["IncludeInformation"] = "false"
+                    }
+                },
+                _actorUpn,
+                _actorUpn,
+                _endpoint.Id);
+
+            _diagnosticMessage = $"Request {request.Id} submitted. Approve it from Pending Requests to start collection.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _diagnosticMessage = $"Could not request the bundle: {ex.Message}";
+        }
+        finally
+        {
+            _requestingDiagnostics = false;
+        }
     }
 
     private async Task Load()
@@ -224,4 +372,44 @@ else
         ep.IsEnabled &&
         ep.LastSeenAt.HasValue &&
         (DateTimeOffset.UtcNow - ep.LastSeenAt.Value).TotalMinutes < 10;
+
+    private static string FormatPercent(double? value) => value.HasValue ? $"{value.Value:F1}%" : "Unknown";
+
+    private static string FormatBool(bool? value, string trueText, string falseText) =>
+        value.HasValue ? (value.Value ? trueText : falseText) : "Unknown";
+
+    private static string FormatAgo(DateTimeOffset timestamp)
+    {
+        var age = DateTimeOffset.UtcNow - timestamp;
+        return age.TotalMinutes < 1 ? "just now"
+            : age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m ago"
+            : age.TotalDays < 1 ? $"{(int)age.TotalHours}h ago"
+            : $"{(int)age.TotalDays}d ago";
+    }
+
+    private static string FormatBytes(long? bytes)
+    {
+        if (!bytes.HasValue) return "Unknown";
+        var value = (double)bytes.Value;
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+        return $"{value:F1} {units[unit]}";
+    }
+
+    private IEnumerable<EndpointProcessDto> FilterProcesses(EndpointHealthSnapshotDto health) =>
+        health.Processes.Where(x => string.IsNullOrWhiteSpace(_inventorySearch)
+            || x.Name.Contains(_inventorySearch, StringComparison.OrdinalIgnoreCase)).Take(100);
+
+    private IEnumerable<EndpointServiceDto> FilterServices(EndpointHealthSnapshotDto health) =>
+        health.Services.Where(x => string.IsNullOrWhiteSpace(_inventorySearch)
+            || x.Name.Contains(_inventorySearch, StringComparison.OrdinalIgnoreCase)
+            || x.DisplayName.Contains(_inventorySearch, StringComparison.OrdinalIgnoreCase)).Take(500);
+
+    private void ShowProcesses() => _inventoryView = "processes";
+    private void ShowServices() => _inventoryView = "services";
 }

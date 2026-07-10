@@ -40,26 +40,8 @@ if (!builder.Environment.IsDevelopment())
             "Run the setup wizard or set a strong random key in appsettings.Production.json.");
 }
 
-// ── AuditHmacKey migration: auto-generate if missing from existing installs ──
-if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AuditHmacKey"]))
-{
-    var newKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-    builder.Configuration.AddInMemoryCollection([new("Security:AuditHmacKey", newKey)]);
-    var settingsPath = Path.Combine(builder.Environment.ContentRootPath, "appsettings.Production.json");
-    if (File.Exists(settingsPath))
-    {
-        try
-        {
-            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settingsPath))!;
-            var sec  = (node["Security"] as System.Text.Json.Nodes.JsonObject) ?? new System.Text.Json.Nodes.JsonObject();
-            sec["AuditHmacKey"] = newKey;
-            node["Security"] = sec;
-            File.WriteAllText(settingsPath, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-            Log.Warning("Security:AuditHmacKey was missing — auto-generated and saved to {Path}.", settingsPath);
-        }
-        catch (Exception ex) { Log.Warning(ex, "Security:AuditHmacKey was missing — generated for this session but could not persist to {Path}.", settingsPath); }
-    }
-}
+// Audit integrity fails closed: both services must be configured with one shared key.
+_ = DatabaseBootstrapper.RequireAuditHmacKey(builder.Configuration);
 
 // ── Database ─────────────────────────────────────────────────────────────────
 // Use AddDbContextFactory so Blazor Server components can safely share a circuit
@@ -135,6 +117,8 @@ builder.Services.AddScoped<IBulkOperationService, BulkOperationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IEndpointService, EndpointService>();
+builder.Services.AddScoped<IDiagnosticBundleService, DiagnosticBundleService>();
+builder.Services.AddScoped<IMonitoringService, MonitoringService>();
 builder.Services.AddScoped<IRegistrationTokenService, RegistrationTokenService>();
 builder.Services.AddScoped<IAutoApprovalService, AutoApprovalService>();
 builder.Services.AddScoped<IAuditExportService, AuditExportService>();
@@ -147,6 +131,13 @@ builder.Services.AddHostedService<PgNotifyListenerService>();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var ctx = scope.ServiceProvider.GetRequiredService<RaizenDbContext>();
+    await DatabaseBootstrapper.EnsureModelCreatedAsync(ctx);
+    await DatabaseBootstrapper.EnsureRmmFeaturesAsync(ctx);
+}
+
 // ── server_settings table (grace period persistence) ─────────────────────────
 using (var scope = app.Services.CreateScope())
 {
@@ -158,6 +149,35 @@ using (var scope = app.Services.CreateScope())
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         GRANT ALL ON TABLE server_settings TO CURRENT_USER;
+        """);
+    await DatabaseBootstrapper.ValidateAuditKeyConsistencyAsync(ctx, app.Configuration);
+
+    await ctx.Database.ExecuteSqlRawAsync("""
+        CREATE OR REPLACE FUNCTION raizen_guard_audit_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'DELETE' THEN
+                RAISE EXCEPTION 'audit_logs is append-only';
+            END IF;
+            IF current_setting('raizen.audit_repair', true) IS DISTINCT FROM 'on' THEN
+                RAISE EXCEPTION 'audit_logs may only be updated by the audited repair workflow';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'TR_audit_logs_append_only'
+                  AND tgrelid = 'audit_logs'::regclass
+            ) THEN
+                CREATE TRIGGER "TR_audit_logs_append_only"
+                    BEFORE UPDATE OR DELETE ON audit_logs
+                    FOR EACH ROW EXECUTE FUNCTION raizen_guard_audit_mutation();
+            END IF;
+        END $$;
+        REVOKE DELETE ON audit_logs FROM CURRENT_USER;
         """);
 }
 
@@ -239,8 +259,6 @@ using (var scope = app.Services.CreateScope())
     var ctx  = scope.ServiceProvider.GetRequiredService<RaizenDbContext>();
     var auth = scope.ServiceProvider.GetRequiredService<IAdminAuthService>();
 
-    await ctx.Database.EnsureCreatedAsync();
-
     // Create admin_users table if it doesn't exist (EnsureCreated skips on existing DBs)
     await ctx.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS notification_settings (
@@ -257,10 +275,13 @@ using (var scope = app.Services.CreateScope())
             "NotifyOnSubmit"   boolean                  NOT NULL DEFAULT true,
             "NotifyOnApproved" boolean                  NOT NULL DEFAULT true,
             "NotifyOnDenied"   boolean                  NOT NULL DEFAULT true,
+            "NotifyOnCompleted" boolean                 NOT NULL DEFAULT true,
             "UpdatedAt"        timestamp with time zone NOT NULL DEFAULT now(),
             "UpdatedBy"        character varying(320)   NOT NULL DEFAULT '',
             CONSTRAINT "PK_notification_settings" PRIMARY KEY ("Id")
         );
+        ALTER TABLE notification_settings
+            ADD COLUMN IF NOT EXISTS "NotifyOnCompleted" boolean NOT NULL DEFAULT true;
         GRANT ALL ON TABLE notification_settings TO CURRENT_USER;
         """);
 
@@ -292,7 +313,19 @@ using (var scope = app.Services.CreateScope())
             "CreatedBy" character varying(320)   NOT NULL DEFAULT '',
             CONSTRAINT "PK_registration_tokens" PRIMARY KEY ("Id")
         );
-        CREATE INDEX IF NOT EXISTS "IX_registration_tokens_TokenHash" ON registration_tokens ("TokenHash");
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'IX_registration_tokens_TokenHash'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+            ) THEN
+                EXECUTE 'DROP INDEX IF EXISTS "IX_registration_tokens_TokenHash"';
+                EXECUTE 'CREATE UNIQUE INDEX "IX_registration_tokens_TokenHash" '
+                     || 'ON registration_tokens ("TokenHash")';
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_IsActive"  ON registration_tokens ("IsActive");
         CREATE INDEX IF NOT EXISTS "IX_registration_tokens_ExpiresAt" ON registration_tokens ("ExpiresAt");
         GRANT ALL ON TABLE registration_tokens TO CURRENT_USER;

@@ -444,8 +444,8 @@ public sealed class BugFixVerificationTests
 
         var dto = new UpsertActionDefinitionDto
         {
-            DisplayName = "Test Delete File",
-            ActionType = ActionType.DeleteFile, // Not implemented
+            DisplayName = "Test Delete Registry Value",
+            ActionType = ActionType.DeleteRegistryValue, // Not implemented
             Parameters = [],
             ApproverGroupIds = [],
             IsEnabled = true,
@@ -480,12 +480,6 @@ public sealed class BugFixVerificationTests
     }
 
     [Theory]
-    [InlineData(ActionType.DeleteFile)]
-    [InlineData(ActionType.CreateLocalUser)]
-    [InlineData(ActionType.DisableLocalUser)]
-    [InlineData(ActionType.AddTrustedCertificate)]
-    [InlineData(ActionType.SetFirewallRule)]
-    [InlineData(ActionType.UninstallMsi)]
     [InlineData(ActionType.DeleteRegistryValue)]
     public async Task CreateAction_RejectsAllUnimplementedTypes(ActionType type)
     {
@@ -522,6 +516,13 @@ public sealed class BugFixVerificationTests
     [InlineData(ActionType.RunAsAdmin)]
     [InlineData(ActionType.SetNetworkConfiguration)]
     [InlineData(ActionType.SetEnvironmentVariable)]
+    [InlineData(ActionType.UninstallMsi)]
+    [InlineData(ActionType.DeleteFile)]
+    [InlineData(ActionType.CreateLocalUser)]
+    [InlineData(ActionType.DisableLocalUser)]
+    [InlineData(ActionType.AddTrustedCertificate)]
+    [InlineData(ActionType.SetFirewallRule)]
+    [InlineData(ActionType.CollectEventLogs)]
     public async Task CreateAction_AcceptsAllImplementedTypes(ActionType type)
     {
         var (opts, factory) = CreateDb();
@@ -567,7 +568,7 @@ public sealed class BugFixVerificationTests
         var updateDto = new UpsertActionDefinitionDto
         {
             DisplayName = "Test",
-            ActionType = ActionType.SetFirewallRule, // Not implemented
+            ActionType = ActionType.DeleteRegistryValue, // Not implemented
             Parameters = [],
             ApproverGroupIds = [],
             IsEnabled = true,
@@ -609,6 +610,8 @@ public sealed class BugFixVerificationTests
         public Task SendRequestSubmittedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
             Task.CompletedTask;
         public Task SendRequestReviewedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
+            Task.CompletedTask;
+        public Task SendRequestCompletedAsync(ElevationRequestDto request, CancellationToken ct = default) =>
             Task.CompletedTask;
     }
 
