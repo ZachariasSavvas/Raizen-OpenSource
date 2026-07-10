@@ -148,8 +148,8 @@ The Windows release package includes `Update-RaizenServer.ps1`. From an elevated
 
 ```powershell
 .\Update-RaizenServer.ps1 `
-  -PackageDir "C:\Path\To\RaizenServer-1.5.8" `
-  -AgentVersion "1.5.8" `
+  -PackageDir "C:\Path\To\RaizenServer-1.5.9" `
+  -AgentVersion "1.5.9" `
   -Force
 ```
 
@@ -180,13 +180,13 @@ dotnet test tests\Raizen.Tests\Raizen.Tests.csproj
 Build the full Windows release package:
 
 ```powershell
-.\scripts\Build-WindowsServer.ps1 -Version "1.5.8"
+.\scripts\Build-WindowsServer.ps1 -Version "1.5.9"
 ```
 
 Output is written to:
 
 ```text
-release\RaizenServer-1.5.8\
+release\RaizenServer-1.5.9\
   RaizenServer-Setup.exe
   api\
   web\

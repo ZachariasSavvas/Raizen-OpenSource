@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject IHttpContextAccessor HttpContextAccessor
 @using Raizen.Shared.DTOs
+@using Raizen.Shared.Security
 @using Raizen.Server.Core.Services
 
 <PageTitle>Request Detail | Raizen</PageTitle>
@@ -31,6 +32,9 @@ else
         <StatusBadge Status="_request.Status" />
         <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:9999px;font-size:.75rem;font-weight:600;background:#f3f4f6;color:#374151">
             @ActionTypeIcon(_request.ActionType) @_request.ActionType
+        </span>
+        <span class="rz-badge @(ActionRiskPolicy.RequiresHumanReview(_request.ActionType) ? "rz-badge-pending" : "rz-badge-off")">
+            @ActionRiskPolicy.Label(_request.ActionType)
         </span>
         <span class="text-muted" style="font-size:.8rem">ID: <code>@_request.Id</code></span>
     </div>
@@ -331,6 +335,14 @@ else
                         @if (!string.IsNullOrEmpty(_error))
                         {
                             <div class="alert alert-danger py-2" role="alert" aria-live="assertive">@_error</div>
+                        }
+                        @if (ActionRiskPolicy.RequiresHumanReview(_request.ActionType))
+                        {
+                            <div class="alert alert-warning py-2" role="status">
+                                <strong>High-risk request.</strong>
+                                @ActionRiskPolicy.Recommendation(_request.ActionType)
+                                Auto-approval is blocked by policy.
+                            </div>
                         }
                         <EditForm Model="_review" OnValidSubmit="Submit">
                             <DataAnnotationsValidator />

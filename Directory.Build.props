@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <RaizenVersion>1.5.8</RaizenVersion>
+    <RaizenVersion>1.5.9</RaizenVersion>
     <Version Condition="'$(Version)' == ''">$(RaizenVersion)</Version>
   </PropertyGroup>
 </Project>

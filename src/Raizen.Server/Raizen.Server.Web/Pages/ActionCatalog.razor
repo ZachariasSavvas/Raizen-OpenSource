@@ -3,6 +3,7 @@
 @inject IActionCatalogService Catalog
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthState
+@using Raizen.Shared.Security
 
 <PageTitle>Action Catalog | Raizen</PageTitle>
 
@@ -45,6 +46,16 @@
                             }
                         </InputSelect>
                     </div>
+                    @if (ActionRiskPolicy.RequiresHumanReview(_editing.ActionType))
+                    {
+                        <div class="col-12">
+                            <div class="alert alert-warning py-2 mb-0" style="font-size:.86rem">
+                                <strong>High-risk action.</strong>
+                                @ActionRiskPolicy.Recommendation(_editing.ActionType)
+                                Auto-approval is ignored at runtime for this action type.
+                            </div>
+                        </div>
+                    }
                     <div class="col-12">
                         <label class="form-label" style="font-size:.875rem">Description</label>
                         <InputTextArea class="form-control" @bind-Value="_editing.Description" rows="2" />
@@ -107,6 +118,7 @@ else
                 <tr>
                     <th>Name</th>
                     <th>Type</th>
+                    <th>Risk</th>
                     <th>Window</th>
                     <th>Auto-approve</th>
                     <th>Status</th>
@@ -119,9 +131,19 @@ else
                     <tr>
                         <td><strong>@a.DisplayName</strong></td>
                         <td><code style="font-size:.8rem">@a.ActionType</code></td>
+                        <td>
+                            <span class="rz-badge @(ActionRiskPolicy.RequiresHumanReview(a.ActionType) ? "rz-badge-pending" : "rz-badge-off")">
+                                @ActionRiskPolicy.Label(a.ActionType)
+                            </span>
+                        </td>
                         <td>@a.ApprovalWindowMinutes min</td>
                         <td>
-                            @if (a.AutoApprove)
+                            @if (a.AutoApprove && ActionRiskPolicy.RequiresHumanReview(a.ActionType))
+                            {
+                                <span class="rz-badge rz-badge-pending"><i class="bi bi-shield-exclamation"></i> Manual review</span>
+                                <div class="text-muted mt-1" style="font-size:.75rem">Auto-approval ignored</div>
+                            }
+                            else if (a.AutoApprove)
                             {
                                 <span class="rz-badge rz-badge-approved"><i class="bi bi-lightning-fill"></i> Auto</span>
                             }

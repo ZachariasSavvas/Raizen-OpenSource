@@ -16,6 +16,19 @@ $TrayDst    = 'C:\Program Files\Raizen\Tray'
 
 Write-Host '=== Raizen Endpoint Updater ===' -ForegroundColor Cyan
 
+function Set-RaizenEndpointRecovery {
+    & sc.exe failure RaizenEndpoint reset= 86400 actions= restart/60000/restart/60000/restart/300000 | Out-Null
+    $failureExit = $LASTEXITCODE
+    & sc.exe failureflag RaizenEndpoint 1 | Out-Null
+    $flagExit = $LASTEXITCODE
+
+    if ($failureExit -eq 0 -and $flagExit -eq 0) {
+        Write-Host 'Service recovery configured: restart on failure.' -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: Could not configure service recovery (sc.exe exit $failureExit/$flagExit)." -ForegroundColor Yellow
+    }
+}
+
 # ── Stop service ─────────────────────────────────────────────────────────────
 Write-Host 'Stopping RaizenEndpoint service...' -ForegroundColor Yellow
 Stop-Service RaizenEndpoint -Force
@@ -56,6 +69,8 @@ foreach ($f in $trayFiles) {
 }
 
 # ── Start service ─────────────────────────────────────────────────────────────
+Set-RaizenEndpointRecovery
+
 Write-Host 'Starting RaizenEndpoint service...' -ForegroundColor Yellow
 Start-Service RaizenEndpoint
 Start-Sleep -Seconds 2

@@ -1,6 +1,6 @@
 param(
     [string]$Token,
-    [string]$Version = "1.5.8",
+    [string]$Version = "1.5.9",
     [string]$Repository = "ZachariasSavvas/Raizen-OpenSource"
 )
 
@@ -15,7 +15,7 @@ Write-Host "[1/4] Creating GitHub release v$Version..."
 $releaseBody = [PSCustomObject]@{
     tag_name   = "v$Version"
     name       = "Raizen v$Version - Open Source Edition"
-    body       = "## Raizen v$Version`n`n### Highlights`n- Endpoint health, process, and Windows service inventory with bounded low-frequency collection.`n- Configurable monitoring rules, per-service alerts, acknowledgement, deletion, and email routing.`n- Approved event-log diagnostic bundles with redaction, integrity verification, and automatic expiry.`n- Hardened audit-chain startup, append-only database enforcement, and idempotent schema repair.`n- Expanded admin exports, notification handling, endpoint status visibility, and tray request feedback.`n`n### Files`n- **RaizenServer-$Version.zip** - Full Windows server package.`n- **RaizenServer-Setup-$Version.exe** - Standalone server setup wizard.`n- **RaizenEndpoint-$Version.msi** - Endpoint agent installer.`n- **SHA256SUMS-$Version.txt** - Release asset checksums.`n`n### Upgrade`nExtract the server package and run **Update-RaizenServer.ps1** as Administrator with **-AgentVersion $Version**. Pilot the endpoint update before broad deployment."
+    body       = "## Raizen v$Version`n`n### Highlights`n- Added an admin Hardening Check page for production readiness review.`n- Added high-risk action policy so shells, scripts, identity, trust, file-delete, registry, network, and installer actions always require human review.`n- Added clearer high-risk warnings in the Action Catalog, Auto-Approval Rules, Pending Approvals, and Request Detail pages.`n- Configured Windows service recovery for RaizenApi and RaizenWeb during setup and updates, with endpoint script recovery reinforcement.`n- Removed temporary local diagnostic/test scripts and hard-coded dev-token helpers from the open-source repo.`n`n### Files`n- **RaizenServer-$Version.zip** - Full Windows server package.`n- **RaizenServer-Setup-$Version.exe** - Standalone server setup wizard.`n- **RaizenEndpoint-$Version.msi** - Endpoint agent installer.`n- **SHA256SUMS-$Version.txt** - Release asset checksums.`n`n### Upgrade`nExtract the server package and run **Update-RaizenServer.ps1** as Administrator with **-AgentVersion $Version**. Pilot the endpoint update before broad deployment."
     draft      = $false
     prerelease = $false
 }

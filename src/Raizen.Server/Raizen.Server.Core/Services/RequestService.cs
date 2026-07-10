@@ -5,6 +5,7 @@ using Raizen.Server.Core.Data;
 using Raizen.Server.Core.Models;
 using Raizen.Shared.DTOs;
 using Raizen.Shared.Enums;
+using Raizen.Shared.Security;
 
 namespace Raizen.Server.Core.Services;
 
@@ -48,9 +49,13 @@ public sealed class RequestService(
         var now = DateTimeOffset.UtcNow;
 
         // ── Auto-approval: definition flag OR matching rule ──────────────────
+        // High-risk actions must always receive a human review, even if a broad
+        // auto-approval rule would otherwise match.
         var ruleAutoApprove = !definition.AutoApprove &&
             await autoApproval.ShouldAutoApproveAsync(definition.ActionType, definition.Id, requesterUpn, ct);
-        var shouldAutoApprove = definition.AutoApprove || ruleAutoApprove;
+        var shouldAutoApprove =
+            !ActionRiskPolicy.RequiresHumanReview(definition.ActionType) &&
+            (definition.AutoApprove || ruleAutoApprove);
 
         // Validate scheduled time if provided
         if (dto.ScheduledForUtc.HasValue && dto.ScheduledForUtc.Value <= DateTimeOffset.UtcNow)

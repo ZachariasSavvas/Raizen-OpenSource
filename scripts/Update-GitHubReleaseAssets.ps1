@@ -1,6 +1,6 @@
 param(
     [string]$Token,
-    [string]$Version = "1.5.8",
+    [string]$Version = "1.5.9",
     [string]$Repository = "ZachariasSavvas/Raizen-OpenSource"
 )
 

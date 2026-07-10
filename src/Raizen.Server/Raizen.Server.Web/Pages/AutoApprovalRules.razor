@@ -6,11 +6,12 @@
 @using Raizen.Server.Core.Services
 @using Raizen.Shared.DTOs
 @using Raizen.Shared.Enums
+@using Raizen.Shared.Security
 
 <PageTitle>Auto-Approval Rules | Raizen</PageTitle>
 
 <h1 class="rz-page-title">Auto-Approval Rules</h1>
-<p class="rz-page-subtitle">Requests matching any enabled rule are automatically approved without manual review.</p>
+<p class="rz-page-subtitle">Requests matching any enabled rule can be approved automatically. High-risk actions still require manual review.</p>
 
 @if (!string.IsNullOrEmpty(_error))
 {
@@ -63,6 +64,7 @@
         </div>
         <div class="mt-2" style="font-size:.78rem;color:#6b7280">
             Leave Action Type / Definition blank to match all. UPN pattern supports <code>*</code> wildcard (e.g. <code>*&#64;corp.com</code>).
+            High-risk actions are excluded by runtime policy.
         </div>
     </div>
 </div>
@@ -103,11 +105,22 @@ else
                     {
                         <tr>
                             <td style="font-weight:500">@rule.Name</td>
-                            <td><code style="font-size:.78rem">@(rule.ActionType?.ToString() ?? "Any")</code></td>
+                            <td>
+                                <code style="font-size:.78rem">@(rule.ActionType?.ToString() ?? "Any")</code>
+                                @if (RuleTouchesHighRisk(rule))
+                                {
+                                    <div class="text-muted mt-1" style="font-size:.74rem">High-risk excluded</div>
+                                }
+                            </td>
                             <td>
                                 @if (rule.ActionDefinitionId.HasValue)
                                 {
-                                    <code style="font-size:.78rem">@(_actions.FirstOrDefault(a => a.Id == rule.ActionDefinitionId)?.DisplayName ?? rule.ActionDefinitionId.ToString())</code>
+                                    var action = _actions.FirstOrDefault(a => a.Id == rule.ActionDefinitionId);
+                                    <code style="font-size:.78rem">@(action?.DisplayName ?? rule.ActionDefinitionId.ToString())</code>
+                                    @if (action is not null && ActionRiskPolicy.RequiresHumanReview(action.ActionType))
+                                    {
+                                        <div class="text-muted mt-1" style="font-size:.74rem">Manual review required</div>
+                                    }
                                 }
                                 else
                                 {
@@ -205,7 +218,9 @@ else
             _newActionType       = "";
             _newActionDefinitionId = "";
             _newUpnPattern       = "";
-            _success = "Rule created.";
+            _success = RuleTargetsHighRisk(actionType, actionDefId)
+                ? "Rule created. High-risk matches still require manual review."
+                : "Rule created.";
             await LoadRules();
         }
         catch (Exception ex)
@@ -250,5 +265,27 @@ else
             ?? user?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
             ?? user?.Identity?.Name
             ?? "unknown";
+    }
+
+    private bool RuleTouchesHighRisk(AutoApprovalRuleDto rule)
+    {
+        if (rule.ActionDefinitionId.HasValue)
+        {
+            var action = _actions.FirstOrDefault(a => a.Id == rule.ActionDefinitionId);
+            return action is not null && ActionRiskPolicy.RequiresHumanReview(action.ActionType);
+        }
+
+        return !rule.ActionType.HasValue || ActionRiskPolicy.RequiresHumanReview(rule.ActionType.Value);
+    }
+
+    private bool RuleTargetsHighRisk(ActionType? actionType, Guid? actionDefinitionId)
+    {
+        if (actionDefinitionId.HasValue)
+        {
+            var action = _actions.FirstOrDefault(a => a.Id == actionDefinitionId.Value);
+            return action is not null && ActionRiskPolicy.RequiresHumanReview(action.ActionType);
+        }
+
+        return !actionType.HasValue || ActionRiskPolicy.RequiresHumanReview(actionType.Value);
     }
 }

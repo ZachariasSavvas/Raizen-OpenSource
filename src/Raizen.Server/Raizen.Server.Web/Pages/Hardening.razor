@@ -1,0 +1,449 @@
+@page "/hardening"
+@attribute [Authorize(Policy = "Admin")]
+@inject IDbContextFactory<RaizenDbContext> DbFactory
+@inject IConfiguration Config
+@inject IWebHostEnvironment Env
+@inject ISyslogSender SyslogSender
+@using Microsoft.EntityFrameworkCore
+@using Raizen.Server.Core.Data
+@using Raizen.Server.Core.Services
+@using Raizen.Shared.Security
+@using System.Reflection
+@using System.Text.Json
+
+<PageTitle>Hardening Check | Raizen</PageTitle>
+
+<div class="rz-page-header">
+    <div>
+        <h1 class="rz-page-title">Hardening Check</h1>
+        <p class="rz-page-subtitle">Review production readiness items before wider rollout.</p>
+    </div>
+    <div class="rz-page-actions">
+        @if (!_loading)
+        {
+            <span class="rz-badge rz-badge-succeeded">@PassCount pass</span>
+            <span class="rz-badge rz-badge-pending">@WarningCount warning</span>
+            <span class="rz-badge rz-badge-cancelled">@FailCount fail</span>
+        }
+        <button class="rz-btn rz-btn-ghost rz-btn-sm" @onclick="Load" disabled="@_loading">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted mt-4">
+        <span class="spinner-border spinner-border-sm"></span> Loading hardening checks
+    </div>
+}
+else if (!string.IsNullOrEmpty(_loadError))
+{
+    <div class="alert alert-danger" role="alert">
+        @_loadError
+    </div>
+}
+else
+{
+    <div class="rz-card">
+        <table class="rz-table">
+            <thead>
+                <tr>
+                    <th style="width:120px">Status</th>
+                    <th style="width:180px">Area</th>
+                    <th style="width:220px">Check</th>
+                    <th>Detail</th>
+                    <th>Fix</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var check in _checks.OrderBy(c => c.Sort).ThenBy(c => c.Name))
+                {
+                    <tr>
+                        <td>
+                            <span class="rz-badge @BadgeClass(check.State)">
+                                @StateLabel(check.State)
+                            </span>
+                        </td>
+                        <td>@check.Category</td>
+                        <td><strong>@check.Name</strong></td>
+                        <td>@check.Detail</td>
+                        <td class="text-muted">@check.Remediation</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<HardeningCheck> _checks = [];
+    private bool _loading = true;
+    private string? _loadError;
+
+    private int PassCount => _checks.Count(c => c.State == HardeningState.Pass);
+    private int WarningCount => _checks.Count(c => c.State == HardeningState.Warning);
+    private int FailCount => _checks.Count(c => c.State == HardeningState.Fail);
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        _loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var checks = new List<HardeningCheck>();
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var admins = await db.AdminUsers.AsNoTracking().ToListAsync();
+            var notification = await db.NotificationSettings.AsNoTracking().FirstOrDefaultAsync();
+            var endpoints = await db.EndpointRegistrations.AsNoTracking().ToListAsync();
+            var actions = await db.ActionDefinitions.AsNoTracking().ToListAsync();
+            var pollSigningKey = Config["Security:PollSigningPrivateKeyPem"]
+                ?? await ReadServerSettingAsync(db, "poll_signing_key_pem");
+
+            AddRuntimeChecks(checks);
+            AddSecurityChecks(checks, pollSigningKey);
+            AddAdminChecks(checks, admins);
+            AddNotificationChecks(checks, notification);
+            AddEndpointChecks(checks, endpoints);
+            AddActionPolicyChecks(checks, actions);
+            AddBackupChecks(checks);
+
+            _checks = checks;
+        }
+        catch (Exception ex)
+        {
+            _loadError = "Could not load hardening checks: " + ex.Message;
+            _checks = [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void AddRuntimeChecks(List<HardeningCheck> checks)
+    {
+        var devMode = Config.GetValue<bool>("DevMode:Enabled");
+        var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown";
+        var agentVersion = Config["AgentDeployment:CurrentVersion"];
+        var installerPath = Config["AgentDeployment:InstallerPath"];
+        var certPath = Config["Kestrel:Endpoints:HttpsDefault:Certificate:Path"]
+            ?? Config["Kestrel:Certificates:Default:Path"];
+
+        Add(checks, 10, "Runtime", "Server version", HardeningState.Info,
+            $"Web assembly version: {assemblyVersion}.",
+            "Build packages from the repo version in Directory.Build.props.");
+
+        Add(checks, 10, "Runtime", "Agent auto-update version",
+            string.IsNullOrWhiteSpace(agentVersion) ? HardeningState.Warning : HardeningState.Pass,
+            string.IsNullOrWhiteSpace(agentVersion)
+                ? "AgentDeployment:CurrentVersion is not set."
+                : $"CurrentVersion is {agentVersion}.",
+            "Set this after each endpoint MSI release so agents can update.");
+
+        Add(checks, 10, "Runtime", "Endpoint MSI path",
+            File.Exists(installerPath) ? HardeningState.Pass : HardeningState.Warning,
+            string.IsNullOrWhiteSpace(installerPath)
+                ? "AgentDeployment:InstallerPath is empty."
+                : File.Exists(installerPath)
+                    ? $"MSI found at {installerPath}."
+                    : $"MSI was not found at {installerPath}.",
+            "Run the server update script with the release package or set InstallerPath to the MSI.");
+
+        Add(checks, 10, "Runtime", "Development mode",
+            devMode && !Env.IsDevelopment() ? HardeningState.Fail :
+            devMode ? HardeningState.Warning : HardeningState.Pass,
+            devMode
+                ? $"DevMode:Enabled is true in {Env.EnvironmentName}."
+                : "DevMode is not enabled.",
+            "Keep DevMode disabled outside local development.");
+
+        Add(checks, 10, "Runtime", "TLS certificate",
+            Env.IsDevelopment() ? HardeningState.Info :
+            string.IsNullOrWhiteSpace(certPath) ? HardeningState.Fail :
+            File.Exists(certPath) ? HardeningState.Pass : HardeningState.Fail,
+            Env.IsDevelopment()
+                ? "Running in Development."
+                : string.IsNullOrWhiteSpace(certPath)
+                    ? "No Kestrel certificate path is configured."
+                    : File.Exists(certPath)
+                        ? $"Certificate file found at {certPath}."
+                        : $"Certificate file was not found at {certPath}.",
+            "Use the setup wizard certificate or configure a valid production PFX.");
+    }
+
+    private void AddSecurityChecks(List<HardeningCheck> checks, string? pollSigningKey)
+    {
+        var auditKey = Config["Security:AuditHmacKey"];
+        var encryptionKey = Config["Security:EncryptionKey"];
+        var syslog = SyslogSender.GetOptions();
+
+        var auditReady = HasUsableSecret(auditKey)
+            && !string.Equals(auditKey, encryptionKey, StringComparison.Ordinal);
+        Add(checks, 20, "Security", "Audit HMAC key",
+            auditReady ? HardeningState.Pass : HardeningState.Fail,
+            auditReady
+                ? "A dedicated audit key is configured."
+                : "AuditHmacKey is missing, placeholder-like, or matches EncryptionKey.",
+            "Configure a strong dedicated Security:AuditHmacKey for API and Web.");
+
+        Add(checks, 20, "Security", "Encryption key",
+            HasUsableSecret(encryptionKey) ? HardeningState.Pass : HardeningState.Fail,
+            HasUsableSecret(encryptionKey)
+                ? "EncryptionKey is configured."
+                : "EncryptionKey is missing or placeholder-like.",
+            "Run setup or configure Security:EncryptionKey with a strong random value.");
+
+        Add(checks, 20, "Security", "Poll signing key",
+            HasUsableSecret(pollSigningKey) ? HardeningState.Pass : HardeningState.Fail,
+            HasUsableSecret(pollSigningKey)
+                ? "Poll response signing key is available."
+                : "No poll signing key was found in config or server_settings.",
+            "Let startup generate the key or set Security:PollSigningPrivateKeyPem.");
+
+        Add(checks, 20, "Security", "Syslog / SIEM",
+            syslog.Enabled && !string.IsNullOrWhiteSpace(syslog.Host) ? HardeningState.Pass : HardeningState.Warning,
+            syslog.Enabled && !string.IsNullOrWhiteSpace(syslog.Host)
+                ? $"Forwarding to {syslog.Host}:{syslog.Port} over {syslog.Protocol}."
+                : "Syslog forwarding is not configured.",
+            "Configure Syslog / SIEM if audit events must leave the database.");
+    }
+
+    private static void AddAdminChecks(List<HardeningCheck> checks, List<AdminUser> admins)
+    {
+        var activeAdmins = admins.Where(a => a.IsActive).ToList();
+        var forcedPassword = activeAdmins.Count(a => a.MustChangePassword);
+        var mfaReady = activeAdmins.Count(a => a.TotpEnabled);
+
+        Add(checks, 30, "Access", "Active admins",
+            activeAdmins.Count > 0 ? HardeningState.Pass : HardeningState.Fail,
+            activeAdmins.Count > 0
+                ? $"{activeAdmins.Count} active admin/operator account(s)."
+                : "No active admin accounts found.",
+            "Keep at least two named admin accounts for recovery.");
+
+        Add(checks, 30, "Access", "Default passwords",
+            forcedPassword == 0 ? HardeningState.Pass : HardeningState.Warning,
+            forcedPassword == 0
+                ? "No active users are flagged to change password."
+                : $"{forcedPassword} active user(s) still must change password.",
+            "Have each user sign in and change the seeded or temporary password.");
+
+        Add(checks, 30, "Access", "MFA enrollment",
+            mfaReady > 0 ? HardeningState.Pass : HardeningState.Warning,
+            mfaReady > 0
+                ? $"{mfaReady} active user(s) have TOTP enabled."
+                : "No active users have TOTP enabled.",
+            "Enable MFA for approvers and administrators before production rollout.");
+    }
+
+    private static void AddNotificationChecks(List<HardeningCheck> checks, NotificationSettings? notification)
+    {
+        var recipients = ParseRecipients(notification?.RecipientsJson);
+        var ready = notification?.Enabled == true
+            && !string.IsNullOrWhiteSpace(notification.SmtpHost)
+            && !string.IsNullOrWhiteSpace(notification.FromAddress)
+            && recipients.Count > 0;
+
+        Add(checks, 40, "Notifications", "SMTP alerts",
+            ready ? HardeningState.Pass : HardeningState.Warning,
+            ready
+                ? $"SMTP enabled with {recipients.Count} recipient(s)."
+                : "Approval, denial, and completion emails are not fully configured.",
+            "Set SMTP host, sender, recipients, and event toggles on Notifications.");
+    }
+
+    private static void AddEndpointChecks(List<HardeningCheck> checks, List<EndpointRegistration> endpoints)
+    {
+        var enabled = endpoints.Where(e => e.IsEnabled).ToList();
+        var now = DateTimeOffset.UtcNow;
+        var stale = enabled.Count(e => !e.LastSeenAt.HasValue || now - e.LastSeenAt.Value > TimeSpan.FromHours(24));
+        var pollMissing = enabled.Count(e => !e.PollSigningConfigured);
+        var healthMissing = enabled.Count(e => !e.HealthReportedAt.HasValue || now - e.HealthReportedAt.Value > TimeSpan.FromHours(24));
+
+        Add(checks, 50, "Endpoints", "Enabled endpoints",
+            enabled.Count > 0 ? HardeningState.Pass : HardeningState.Info,
+            enabled.Count > 0
+                ? $"{enabled.Count} enabled endpoint(s) registered."
+                : "No enabled endpoints are registered yet.",
+            "Register pilot endpoints before production testing.");
+
+        Add(checks, 50, "Endpoints", "Recent check-in",
+            enabled.Count == 0 ? HardeningState.Info :
+            stale == 0 ? HardeningState.Pass : HardeningState.Warning,
+            enabled.Count == 0
+                ? "No endpoints to evaluate."
+                : stale == 0
+                    ? "All enabled endpoints checked in within 24 hours."
+                    : $"{stale} enabled endpoint(s) have not checked in within 24 hours.",
+            "Investigate offline agents or disable retired endpoints.");
+
+        Add(checks, 50, "Endpoints", "Poll signing",
+            enabled.Count == 0 ? HardeningState.Info :
+            pollMissing == 0 ? HardeningState.Pass : HardeningState.Fail,
+            enabled.Count == 0
+                ? "No endpoints to evaluate."
+                : pollMissing == 0
+                    ? "All enabled endpoints report poll signing configured."
+                    : $"{pollMissing} enabled endpoint(s) do not report poll signing configured.",
+            "Redeploy or restart endpoints so they receive the current signing public key.");
+
+        Add(checks, 50, "Endpoints", "Health telemetry",
+            enabled.Count == 0 ? HardeningState.Info :
+            healthMissing == 0 ? HardeningState.Pass : HardeningState.Warning,
+            enabled.Count == 0
+                ? "No endpoints to evaluate."
+                : healthMissing == 0
+                    ? "All enabled endpoints reported health within 24 hours."
+                    : $"{healthMissing} enabled endpoint(s) have stale or missing health telemetry.",
+            "Use the Endpoint Health Dashboard and diagnostics bundle for stale agents.");
+    }
+
+    private static void AddActionPolicyChecks(List<HardeningCheck> checks, List<ActionDefinition> actions)
+    {
+        var highRisk = actions.Where(a => ActionRiskPolicy.RequiresHumanReview(a.ActionType)).ToList();
+        var highRiskAuto = highRisk.Count(a => a.AutoApprove);
+        var highRiskSingleApprover = highRisk.Count(a => a.MinApprovers < 2);
+
+        Add(checks, 60, "Action policy", "High-risk actions",
+            highRisk.Count > 0 ? HardeningState.Pass : HardeningState.Info,
+            highRisk.Count > 0
+                ? $"{highRisk.Count} high-risk action definition(s) are present."
+                : "No high-risk action definitions are configured.",
+            "Keep high-risk actions specific and reviewable.");
+
+        Add(checks, 60, "Action policy", "Auto-approval guard",
+            highRiskAuto == 0 ? HardeningState.Pass : HardeningState.Warning,
+            highRiskAuto == 0
+                ? "No high-risk action definition is marked auto-approve."
+                : $"{highRiskAuto} high-risk action definition(s) are marked auto-approve; runtime still requires manual review.",
+            "Clear Auto-approve on high-risk definitions to avoid operator confusion.");
+
+        Add(checks, 60, "Action policy", "Four-eyes review",
+            highRisk.Count == 0 ? HardeningState.Info :
+            highRiskSingleApprover == 0 ? HardeningState.Pass : HardeningState.Warning,
+            highRisk.Count == 0
+                ? "No high-risk action definitions are configured."
+                : highRiskSingleApprover == 0
+                    ? "All high-risk action definitions require at least two approvers."
+                    : $"{highRiskSingleApprover} high-risk action definition(s) require only one approver.",
+            "Use Min. Approvers = 2 for shell, script, identity, trust, and network changes.");
+    }
+
+    private static void AddBackupChecks(List<HardeningCheck> checks)
+    {
+        var backupDir = Path.Combine(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData),
+            "Raizen",
+            "Backups");
+        var newestBackup = Directory.Exists(backupDir)
+            ? Directory.EnumerateFiles(backupDir, "*", SearchOption.AllDirectories)
+                .Select(path => new FileInfo(path))
+                .Where(file => file.Exists)
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .FirstOrDefault()
+            : null;
+
+        var recent = newestBackup is not null
+            && DateTimeOffset.UtcNow - newestBackup.LastWriteTimeUtc <= TimeSpan.FromDays(7);
+
+        Add(checks, 70, "Recovery", "Recent backup",
+            recent ? HardeningState.Pass : HardeningState.Warning,
+            newestBackup is null
+                ? $"No backup files found under {backupDir}."
+                : $"Newest backup is {FormatAge(newestBackup.LastWriteTimeUtc)} old.",
+            "Schedule database/config backups and keep restore instructions with the release package.");
+    }
+
+    private static async Task<string?> ReadServerSettingAsync(RaizenDbContext db, string key)
+    {
+        try
+        {
+            return await db.Database
+                .SqlQuery<string>($"SELECT value AS \"Value\" FROM server_settings WHERE key = {key}")
+                .FirstOrDefaultAsync();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void Add(
+        List<HardeningCheck> checks,
+        int sort,
+        string category,
+        string name,
+        HardeningState state,
+        string detail,
+        string remediation) =>
+        checks.Add(new HardeningCheck(sort, category, name, state, detail, remediation));
+
+    private static bool HasUsableSecret(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && !value.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+        && !value.Contains("development-only", StringComparison.OrdinalIgnoreCase)
+        && !value.Contains("do-not-use", StringComparison.OrdinalIgnoreCase);
+
+    private static List<string> ParseRecipients(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return [];
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static string FormatAge(DateTimeOffset timestamp)
+    {
+        var age = DateTimeOffset.UtcNow - timestamp;
+        if (age.TotalMinutes < 60)
+            return $"{Math.Max(1, (int)age.TotalMinutes)} minute(s)";
+        if (age.TotalHours < 24)
+            return $"{(int)age.TotalHours} hour(s)";
+        return $"{(int)age.TotalDays} day(s)";
+    }
+
+    private static string BadgeClass(HardeningState state) => state switch
+    {
+        HardeningState.Pass => "rz-badge-succeeded",
+        HardeningState.Warning => "rz-badge-pending",
+        HardeningState.Fail => "rz-badge-cancelled",
+        _ => "rz-badge-off",
+    };
+
+    private static string StateLabel(HardeningState state) => state switch
+    {
+        HardeningState.Pass => "Pass",
+        HardeningState.Warning => "Warning",
+        HardeningState.Fail => "Fail",
+        _ => "Info",
+    };
+
+    private sealed record HardeningCheck(
+        int Sort,
+        string Category,
+        string Name,
+        HardeningState State,
+        string Detail,
+        string Remediation);
+
+    private enum HardeningState
+    {
+        Pass,
+        Warning,
+        Fail,
+        Info,
+    }
+}

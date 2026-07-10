@@ -33,6 +33,7 @@ public static class ServiceInstaller
         // Create service
         RunSc($"create {name} binPath= \"{binPath}\" start= auto DisplayName= \"{displayName}\"");
         RunSc($"description {name} \"{description}\"");
+        ConfigureServiceRecovery(name);
 
         // Set environment variables in service registry.
         // ASPNETCORE_URLS is not set here — Kestrel HTTPS endpoint is configured
@@ -65,6 +66,12 @@ public static class ServiceInstaller
     {
         return ServiceController.GetServices()
             .Any(s => s.ServiceName.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void ConfigureServiceRecovery(string name)
+    {
+        RunSc($"failure {name} reset= 86400 actions= restart/60000/restart/60000/restart/300000");
+        RunSc($"failureflag {name} 1");
     }
 
     private static void RunSc(string args)

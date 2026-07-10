@@ -47,6 +47,26 @@ function Write-Step { param([string]$m) Write-Host "  $m" -ForegroundColor Cyan 
 function Write-OK   { param([string]$m) Write-Host "  [OK] $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "  [WARN] $m" -ForegroundColor Yellow }
 function Fail       { param([string]$m) Write-Host "`n  [ERROR] $m" -ForegroundColor Red; exit 1 }
+function Set-RaizenServiceRecovery {
+    param([string]$Name)
+
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        Write-Warn "$Name service not found -- recovery settings skipped"
+        return
+    }
+
+    & sc.exe failure $Name reset= 86400 actions= restart/60000/restart/60000/restart/300000 | Out-Null
+    $failureExit = $LASTEXITCODE
+    & sc.exe failureflag $Name 1 | Out-Null
+    $flagExit = $LASTEXITCODE
+
+    if ($failureExit -eq 0 -and $flagExit -eq 0) {
+        Write-OK "$Name recovery set to restart after failures"
+    } else {
+        Write-Warn "$Name recovery settings could not be applied (sc.exe exit $failureExit/$flagExit)"
+    }
+}
 
 Write-Host ''
 Write-Host '  Raizen Server Update' -ForegroundColor White
@@ -179,6 +199,12 @@ if (Test-Path $AgentMsiSource) {
     Write-OK "Endpoint MSI copied to $installerPath"
 } else {
     Write-Warn "Endpoint MSI not found in package at $AgentMsiSource -- agent auto-update package was not refreshed"
+}
+
+# -- Configure service recovery ---------------------------------------------
+Write-Step 'Configuring service recovery...'
+foreach ($svc in @('RaizenApi', 'RaizenWeb')) {
+    Set-RaizenServiceRecovery $svc
 }
 
 # -- Start services ----------------------------------------------------------

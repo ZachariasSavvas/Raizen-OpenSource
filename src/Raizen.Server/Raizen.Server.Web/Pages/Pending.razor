@@ -6,6 +6,7 @@
 @inject IHttpContextAccessor HttpContextAccessor
 @using Raizen.Shared.DTOs
 @using Raizen.Shared.Enums
+@using Raizen.Shared.Security
 @using Raizen.Server.Web.Security
 @using Raizen.Server.Core.Services
 
@@ -34,7 +35,7 @@
     <input class="rz-input" style="min-width:280px" placeholder="Search action, requester, endpoint, ticket" @bind="_search" @bind:event="oninput" />
     <select class="rz-select" @bind="_riskFilter">
         <option value="">All risk</option>
-        <option value="Elevated">Elevated</option>
+        <option value="High risk">High risk</option>
         <option value="Standard">Standard</option>
     </select>
     <select class="rz-select" @bind="_connectivityFilter">
@@ -87,7 +88,7 @@ else
                             </td>
                             <td><code>@r.TargetMachine</code></td>
                             <td>@r.RequesterUpn</td>
-                            <td><span class="rz-badge @(RiskLabel(r) == "Elevated" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span></td>
+                            <td><span class="rz-badge @(RiskLabel(r) == "High risk" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span></td>
                             <td class="@(r.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(15) ? "rz-expiring" : "")">@ExpiryLabel(r.ExpiresAt - DateTimeOffset.UtcNow)</td>
                             <td>
                                 <div class="d-flex gap-1 justify-content-end" @onclick:stopPropagation>
@@ -135,7 +136,7 @@ else
                                 <div class="rz-detail-value" style="font-weight:650">@r.ActionDisplayName</div>
                                 <div class="rz-inline-meta rz-truncate" title="@r.Id.ToString()">@r.Id</div>
                             </div>
-                            <span class="rz-badge @(RiskLabel(r) == "Elevated" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span>
+                            <span class="rz-badge @(RiskLabel(r) == "High risk" ? "rz-badge-pending" : "rz-badge-off")">@RiskLabel(r)</span>
                         </div>
                     </div>
 
@@ -182,6 +183,15 @@ else
                         <div class="rz-detail-value">@approvedCount / @r.MinApprovers approval@(r.MinApprovers == 1 ? "" : "s")</div>
                         <div class="rz-inline-meta">Expires @ExpiryLabel(r.ExpiresAt - DateTimeOffset.UtcNow)</div>
                     </div>
+
+                    @if (ActionRiskPolicy.RequiresHumanReview(r.ActionType))
+                    {
+                        <div class="alert alert-warning py-2 mt-3 mb-0" style="font-size:.84rem">
+                            <strong>High-risk request.</strong>
+                            @ActionRiskPolicy.Recommendation(r.ActionType)
+                            Auto-approval is blocked by policy.
+                        </div>
+                    }
 
                     @if (!isActing)
                     {
@@ -509,11 +519,7 @@ else
         return mins < 60 ? $"in {mins}m" : $"in {(int)remaining.TotalHours}h {remaining.Minutes}m";
     }
 
-    private static string RiskLabel(ElevationRequestDto r) => r.ActionType switch
-    {
-        ActionType.RunAsAdmin or ActionType.RunApprovedScript or ActionType.DeleteFile or ActionType.SetRegistryValue or ActionType.DeleteRegistryValue => "Elevated",
-        _ => "Standard"
-    };
+    private static string RiskLabel(ElevationRequestDto r) => ActionRiskPolicy.Label(r.ActionType);
 
     private static string ConnectivityLabel(EndpointRegistrationDto? ep)
     {

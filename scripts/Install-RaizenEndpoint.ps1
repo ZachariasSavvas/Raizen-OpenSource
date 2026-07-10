@@ -164,7 +164,8 @@ if ($PSCmdlet.ShouldProcess($serviceName, "Create Windows Service")) {
     sc.exe config $serviceName obj= "LocalSystem" | Out-Null
 
     # Set failure recovery: restart on failure
-    sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+    sc.exe failure $serviceName reset= 86400 actions= restart/60000/restart/60000/restart/300000 | Out-Null
+    sc.exe failureflag $serviceName 1 | Out-Null
 
     Start-Service -Name $serviceName
     Write-Host "Service '$serviceName' installed and started." -ForegroundColor Green
